@@ -52,4 +52,5 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --bundles nsis
+          releaseAssetNamePattern: Space-Dictation_[version]_Windows-x64[setup][ext]
 
