@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "MintWord",
-  "version": "1.5.7",
-  "identifier": "com.mintword.app",
+  "productName": "空格听写",
+  "version": "1.2.1",
+  "identifier": "local.space-dictation",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,22 +12,24 @@
   "app": {
     "windows": [
       {
-        "title": "MintWord",
-        "width": 960,
-        "height": 680,
-        "minWidth": 720,
-        "minHeight": 520,
+        "title": "空格听写",
+        "width": 1120,
+        "height": 780,
+        "minWidth": 850,
+        "minHeight": 640,
         "resizable": true,
         "fullscreen": false
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data:; connect-src ipc: http://ipc.localhost; script-src 'self'"
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "app"
+    ],
     "macOS": {
       "signingIdentity": "-"
     },

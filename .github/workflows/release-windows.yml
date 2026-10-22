@@ -1,0 +1,52 @@
+name: Build Windows release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows x64 installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build and publish Windows installer
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: 空格听写 v__VERSION__
+          releaseBody: |
+            空格控制的本地纸上英语听写工具。
+
+            - macOS 与 Windows 安装包
+            - 个人词表、CET-4、CET-6、IELTS
+            - 标准录音提前下载并缓存
+            - 核对页点词重播、错词重练和本地备份
+
+            详细说明见仓库 README。
+          releaseDraft: false
+          prerelease: false
+          args: --bundles nsis
+

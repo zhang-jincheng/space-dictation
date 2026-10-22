@@ -1,4 +1,6 @@
 mod commands;
+mod space;
+mod recordings;
 mod db;
 mod engine;
 mod importer;
@@ -23,17 +25,7 @@ fn import_bundled_decks(app_dir: &std::path::Path) -> Result<(), String> {
     let bundled = vec![
         ("CET4", include_str!("../../resources/bundled-decks/CET4.csv"), "en", "zh"),
         ("CET6", include_str!("../../resources/bundled-decks/CET6.csv"), "en", "zh"),
-        ("考研", include_str!("../../resources/bundled-decks/考研.csv"), "en", "zh"),
-        ("GRE", include_str!("../../resources/bundled-decks/GRE.csv"), "en", "zh"),
-        ("TOEFL", include_str!("../../resources/bundled-decks/TOEFL.csv"), "en", "zh"),
         ("IELTS", include_str!("../../resources/bundled-decks/IELTS.csv"), "en", "zh"),
-        ("高考", include_str!("../../resources/bundled-decks/高考.csv"), "en", "zh"),
-        ("中考", include_str!("../../resources/bundled-decks/中考.csv"), "en", "zh"),
-        ("JLPT-N5", include_str!("../../resources/bundled-decks/JLPT-N5.csv"), "ja", "zh"),
-        ("JLPT-N4", include_str!("../../resources/bundled-decks/JLPT-N4.csv"), "ja", "zh"),
-        ("JLPT-N3", include_str!("../../resources/bundled-decks/JLPT-N3.csv"), "ja", "zh"),
-        ("JLPT-N2", include_str!("../../resources/bundled-decks/JLPT-N2.csv"), "ja", "zh"),
-        ("JLPT-N1", include_str!("../../resources/bundled-decks/JLPT-N1.csv"), "ja", "zh"),
     ];
 
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
@@ -55,6 +47,14 @@ fn import_bundled_decks(app_dir: &std::path::Path) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(space::Speech::default())
+        .on_window_event(|window, event| {
+            match event {
+                tauri::WindowEvent::Focused(focused) => window.state::<space::Speech>().set_focus(*focused),
+                tauri::WindowEvent::Destroyed => window.state::<space::Speech>().stop(),
+                _ => {}
+            }
+        })
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -69,12 +69,7 @@ pub fn run() {
                 .expect("Failed to initialize database");
             app.manage(database);
 
-            let import_dir = app_dir.clone();
-            std::thread::spawn(move || {
-                if let Err(e) = import_bundled_decks(&import_dir) {
-                    log::error!("Failed to import bundled decks: {}", e);
-                }
-            });
+            import_bundled_decks(&app_dir).map_err(std::io::Error::other)?;
 
             Ok(())
         })
@@ -82,6 +77,12 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
+            space::space_prepare_audio, space::space_cancel_audio,
+            space::space_read_inbox, space::space_import_help, space::space_open_inbox, space::space_copy_text,
+            space::space_words, space::space_load, space::space_save,
+            space::space_put_deck, space::space_delete_deck,
+            space::space_export, space::space_restore, space::space_voices,
+            space::space_speak, space::space_stop, space::space_speech_status,
             commands::get_decks,
             commands::create_deck,
             commands::delete_deck,
@@ -149,6 +150,16 @@ pub fn run() {
             commands::get_study_streak,
 
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        });
 }

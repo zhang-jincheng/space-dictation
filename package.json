@@ -1,13 +1,15 @@
 {
-  "name": "mintword",
+  "name": "space-dictation",
   "private": true,
-  "version": "1.5.7",
+  "version": "1.2.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test tests/model.test.mjs tests/close.test.mjs",
+    "test:offline": "cargo test --lib --no-run --manifest-path src-tauri/Cargo.toml && node tests/offline-flow.mjs"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",

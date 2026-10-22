@@ -1,3 +1,4 @@
+import { flushBeforeClose } from '../space/closeGuard';
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import type { Deck, Card, StudyCard, ReviewStats, HeatmapDay, SessionResult, DeckProgress, Article, ArticleSummary, Question, ProviderConfig, ImportReport, ImportPreview, FieldMappingSelection, Composition, CompositionSummary, CompositionReview, AiExample, StudyTimeEntry } from '../types';
 
@@ -301,3 +302,63 @@ export async function clearAllCache(): Promise<void> {
   return invoke('clear_all_cache');
 }
 
+
+// Space Dictation: all native calls stay in this bridge.
+import type { AppState as SpaceState, WordDeck, Word, Voice } from '../space/model';
+export const spaceLoad = () => invoke<SpaceState | null>('space_load');
+export const spaceWords = (deckId: string) => invoke<Word[]>('space_words', { deckId });
+export const spaceVoices = () => invoke<Voice[]>('space_voices');
+export const spacePutDeck = (deck: WordDeck) => invoke<void>('space_put_deck', { deck });
+export const spaceDeleteDeck = (deckId: string) => invoke<void>('space_delete_deck', { deckId });
+let saveQueue: Promise<void> = Promise.resolve();
+export function spaceSave(state: SpaceState): Promise<void> {
+  const next = saveQueue.catch(() => {}).then(() => invoke<void>('space_save', { state }));
+  saveQueue = next;
+  return next;
+}
+export const spaceSpeak = (seq: number, text: string, voice: string, rate: number) => invoke<void>('space_speak', { seq, text, voice, rate });
+export const spaceStop = (seq: number) => invoke<void>('space_stop', { seq });
+export const spaceSpeechStatus = (seq: number) => invoke<string>('space_speech_status', { seq });
+export async function spaceReadImport(): Promise<{ name: string; text: string; csv: boolean } | null> {
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const path = await open({ multiple: false, filters: [{ name: 'TXT / CSV', extensions: ['txt', 'csv'] }] });
+  if (!path || Array.isArray(path)) return null;
+  const { readTextFile } = await import('@tauri-apps/plugin-fs');
+  return { name: path.split('/').pop()?.replace(/\.(txt|csv)$/i, '') || '', text: await readTextFile(path), csv: /\.csv$/i.test(path) };
+}
+export async function spaceExport(state: SpaceState): Promise<boolean> {
+  await saveQueue;
+  const { save } = await import('@tauri-apps/plugin-dialog');
+  const path = await save({ defaultPath: `空格听写备份-${new Date().toISOString().slice(0, 10)}.json`, filters: [{ name: 'JSON', extensions: ['json'] }] });
+  if (!path) return false;
+  await invoke('space_export', { state, path });
+  return true;
+}
+export async function spaceChooseBackup(): Promise<string | null> {
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const path = await open({ multiple: false, filters: [{ name: 'JSON', extensions: ['json'] }] });
+  return typeof path === 'string' ? path : null;
+}
+export async function spaceRestore(path: string): Promise<SpaceState> {
+  await saveQueue;
+  return invoke('space_restore', { path });
+}
+export async function spaceGuardClose(onError: (e: unknown) => void): Promise<() => void> {
+  const { getCurrentWindow } = await import('@tauri-apps/api/window');
+  const win = getCurrentWindow();
+  return win.onCloseRequested(event => flushBeforeClose(event, saveQueue, () => win.hide(), onError));
+}
+export interface SpaceImportHelp { folder: string; prompt: string; files: { name: string; path: string }[] }
+export const spaceImportHelp = () => invoke<SpaceImportHelp>('space_import_help');
+export const spaceOpenInbox = () => invoke<void>('space_open_inbox');
+export const spaceCopyText = (text: string) => invoke<void>('space_copy_text', { text });
+export const spaceReadPath = (path: string) => invoke<string>('space_read_inbox', { path });
+export const spacePrepareAudio = (words: Word[], voice: string, rate: number) => invoke<SpaceAudioReport>('space_prepare_audio', { words, voice, rate });
+export const spaceCancelAudio = () => invoke<void>('space_cancel_audio');
+export async function spaceAudioProgress(callback: (p: { ready: number; total: number }) => void): Promise<() => void> {
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen<{ ready: number; total: number }>('space-audio-progress', event => callback(event.payload));
+}
+
+export interface SpaceRecording { word: string; accent: string; author: string; source: string; license: string; license_url: string; url: string; digest: string }
+export interface SpaceAudioReport { ready: string[]; missing: { word: string; error: string }[]; sources: SpaceRecording[] }

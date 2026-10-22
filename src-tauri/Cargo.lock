@@ -2400,37 +2400,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mintword"
-version = "1.5.7"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "csv",
- "dirs",
- "log",
- "rand",
- "regex",
- "reqwest 0.12.28",
- "rodio",
- "rs-fsrs",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-log",
- "tauri-plugin-shell",
- "tempfile",
- "tokio",
- "uuid",
- "windows 0.58.0",
- "zip",
-]
-
-[[package]]
 name = "mio"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4082,6 +4051,37 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
+]
+
+[[package]]
+name = "space-dictation"
+version = "1.2.1"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "csv",
+ "dirs",
+ "log",
+ "rand",
+ "regex",
+ "reqwest 0.12.28",
+ "rodio",
+ "rs-fsrs",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-log",
+ "tauri-plugin-shell",
+ "tempfile",
+ "tokio",
+ "uuid",
+ "windows 0.58.0",
+ "zip",
 ]
 
 [[package]]

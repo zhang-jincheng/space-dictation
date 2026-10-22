@@ -1,112 +1,117 @@
-# MintWord (薄荷词汇)
+# 空格听写 · Space Dictation
 
-> [English](./doc/README-en.md) · [日本語](./doc/README-ja.md) · [한국어](./doc/README-ko.md)
+![空格听写](docs/images/poster-hero.png)
 
-**MintWord** 是一款基于 **SM-2 间隔重复算法** 的跨平台词汇学习桌面应用。前端使用 React + TypeScript + Vite，后端使用 Rust (Tauri v2)，数据库使用 SQLite。
+<p align="center">
+  <strong>每按一次空格，只听一个新单词。</strong><br>
+  面向纸上听写的本地桌面应用，支持 macOS 与 Windows。
+</p>
 
-![img](https://i.postimg.cc/5yCNVW6h/temp-Img.png)
+<p align="center">
+  <a href="https://github.com/zhang-jincheng/space-dictation/releases/latest">下载安装包</a>
+  ·
+  <a href="SPACE-DICTATION.md">使用说明</a>
+  ·
+  <a href="docs/SHOWCASE.md">功能与海报</a>
+  ·
+  <a href="NOTICE.md">来源与署名</a>
+</p>
 
-## 功能特点
+## 为什么做这个应用
 
-- **间隔重复** — 基于 SM-2 算法，科学安排复习计划
-- **内置词库** — ECDICT 英语词库（CET-4、CET-6、考研、GRE、TOEFL、IELTS、高考、中考）+ JLPT N5–N1 日语词库
-- **自定义词库** — 创建自己的词库，支持手动添加、批量添加
-- **词书导入** — 支持 CSV 和 Anki APKG 格式导入，导入前可预览字段映射并手动调整；保留 Anki 学习进度
-- **语音朗读** — Windows / macOS 系统 TTS，根据词库语言自动选择对应声线；可配置的 AI TTS（兼容 OpenAI 接口）
-- **学习统计** — 复习记录、热力图和学习进度追踪
-- **掌握标记** — 标记已掌握的卡片，自动跳过复习
-- **听写模式** — 学习中随机穿插听写，播放单词读音后输入拼写
-- **AI 出题** — 根据词库自动生成选择题，可配置难度、题量和选项数
-- **AI 阅读理解** — 导入文章，使用 AI 生成阅读理解题目辅助学习
-- **AI 服务商管理** — 支持自定义 AI 服务商（OpenAI 兼容接口），配置模型和参数
-- **文库** — 管理学习文章，支持 TXT 导入和手动粘贴
-- **快速预览** — 学习完成后快速浏览本轮学习的单词
-- **笔记功能** — 学习时为单词添加个人笔记
-- **主题配色** — 4 套主题色（薄荷、海洋、暖阳、薰衣草）+ 深色模式
-- **国际化** — 支持简体中文、繁体中文和英文界面
-- **快捷键** — 学习时使用键盘快速操作
+很多背单词工具会自动推进、显示答案或把练习变成屏幕点击。“空格听写”把控制权留给使用者：准备纸笔，按一次空格听一个词，写完后再按空格进入下一个词。
 
-## 内置词库
+- 第一次按 **Space** 才朗读第一个词。
+- 此后每次按 **Space** 停止当前录音并进入下一个词。
+- 按 **R** 重读当前词，不改变进度。
+- 听写阶段隐藏英文、音标和中文释义。
+- 完成后按原顺序核对，可点击单词再次播放录音。
+- 错词可以单独重练，词序、位置和核对结果保存在本机。
 
-英语词库基于 [ECDICT](https://github.com/skywind3000/ECDICT) 项目（MIT 协议），日语词库基于 JLPT 考级词汇整理。
+![核心流程](docs/images/poster-features.png)
 
-| 词库     | 说明                   |
-| -------- | ---------------------- |
-| CET-4    | 大学英语四级           |
-| CET-6    | 大学英语六级           |
-| 考研     | 研究生入学考试         |
-| GRE      | 美国研究生入学考试     |
-| TOEFL    | 托福考试               |
-| IELTS    | 雅思考试               |
-| 高考     | 普通高等学校招生考试   |
-| 中考     | 初中学业水平考试       |
-| JLPT-N5  | 日语能力考 N5 级       |
-| JLPT-N4  | 日语能力考 N4 级       |
-| JLPT-N3  | 日语能力考 N3 级       |
-| JLPT-N2  | 日语能力考 N2 级       |
-| JLPT-N1  | 日语能力考 N1 级       |
+## 下载安装
 
-## 技术栈
+前往 [Releases](https://github.com/zhang-jincheng/space-dictation/releases/latest) 下载当前版本。
 
-| 层         | 技术                               |
-| ---------- | ---------------------------------- |
-| 桌面框架   | [Tauri v2](https://tauri.app/)     |
-| 前端       | React 19 + TypeScript + Vite       |
-| CSS        | Tailwind CSS v4                    |
-| 状态管理   | TanStack React Query               |
-| 路由       | React Router DOM v7                |
-| 后端       | Rust                               |
-| 数据库     | SQLite (rusqlite)                  |
-| 间隔重复   | SM-2 (SuperMemo 2)                 |
-| TTS（系统） | Windows.Media.SpeechSynthesis / macOS `say` |
-| TTS（AI）  | OpenAI 兼容接口 (reqwest)          |
-| 音频播放   | rodio                              |
-| AI 题目生成 | OpenAI 兼容接口 (reqwest)         |
+| 系统 | 安装包 | 说明 |
+| --- | --- | --- |
+| macOS Apple 芯片 | `.dmg` | 拖入“应用程序”。当前为个人发布版本，首次打开如遇系统提示，请右键应用并选择“打开”。 |
+| Windows x64 | `-setup.exe` | 运行安装程序。当前为个人发布版本，Windows 可能显示 SmartScreen 提示。 |
 
-## 快速开始
+应用无需账号。词表、录音缓存、错词和练习记录均保存在本机。
 
-### 环境要求
+![跨平台安装](docs/images/poster-platforms.png)
 
-- [Node.js](https://nodejs.org/) (v18+)
-- [Rust](https://www.rust-lang.org/) (1.77.2+)
-- [Tauri v2 系统依赖](https://v2.tauri.app/start/prerequisites/)
+## 主要功能
 
-### 开发模式
+- **个人词表**：粘贴单词，或导入 UTF-8 TXT / CSV；导入前预览并处理空行、重复项。
+- **内置词库**：大学英语四级、六级和雅思。
+- **自由选词**：每轮可选择数量、顺序或乱序、英式或美式录音及播放速度。
+- **标准录音提前缓存**：开始听写前下载，优先尝试 Google Dictionary 与有道词典，缺少时尝试 Wikimedia Commons。
+- **离线听写**：录音下载完成后，听写推进、核对和错词重练不需要联网。
+- **随时切换词书**：听写台和词表页面均可直接选择本轮使用的词书。
+- **ChatGPT 整理提示词**：一键复制应用内提示词，让 ChatGPT 生成符合导入格式的 CSV。
+- **本地备份**：导出与恢复个人词表、错词和练习记录。
+- **安全恢复**：关闭再打开后保留固定词序和当前位置，恢复时不会自动播放。
+
+## 录音与网络说明
+
+应用不在源码或安装包中捆绑在线词典录音。首次使用某个单词和口音时，应用会在开始听写前下载录音并保存到本地；下载后的文件会先经过音频解码检查。
+
+Wikimedia Commons 文件保留其作者、来源页与开放许可证元数据。Google Dictionary 与有道词典录音仅按各服务条款供个人学习使用，应用会显示实际来源；录音覆盖范围和质量由第三方来源决定。
+
+## 导入格式
+
+CSV：
+
+```csv
+word,translation
+apple,苹果
+a lot of,许多
+```
+
+TXT 可每行写一个单词或短语。应用内“我的词表”页面还提供可一键复制的完整提示词和本地词表收件箱。
+
+## 本地开发
+
+环境要求：
+
+- Node.js 18+
+- Rust 1.77.2+
+- 对应平台的 [Tauri v2 系统依赖](https://v2.tauri.app/start/prerequisites/)
 
 ```bash
-# 安装前端依赖
 npm install
-
-# 启动开发模式（同时启动 Vite 和 Rust 后端）
+npm run build
+npm run lint
+npm test
 npx tauri dev
 ```
 
-### 构建安装包
+生产构建：
 
 ```bash
-npx tauri build
+# macOS
+npx tauri build --bundles dmg
+
+# Windows
+npx tauri build --bundles nsis
 ```
 
-### 仅前端
+Windows Release 由 [GitHub Actions](.github/workflows/release-windows.yml) 在 Windows 构建机上生成。
 
-```bash
-npm run dev      # Vite 开发服务器，默认 localhost:5173
-npm run build    # 类型检查 + 构建前端
-npm run lint     # ESLint 检查
-```
+## 技术实现
 
-## 学习快捷键
+- React 19 + TypeScript + Vite
+- Tauri v2 + Rust
+- SQLite 本地存储
+- Rodio 跨平台本地音频解码与播放
+- 可取消的录音预下载与缓存
+- AGPL-3.0
 
-| 按键          | 功能           |
-| ------------- | -------------- |
-| Space / Enter | 翻转卡片       |
-| 1             | 忘记           |
-| 2             | 模糊           |
-| 3             | 记得           |
-| M             | 标记已掌握     |
-| Ctrl + R      | 重播发音       |
-| Ctrl + ↑↓←→  | 快速预览导航   |
+## 项目来源与许可证
 
-## 许可证
+本项目基于 [MintWord / 薄荷词汇](https://github.com/Yunease/MintWord) 修改，基准提交为 `16ef1b18a030bcd00954bc5414b01cc3c969e3f1`。原项目署名和许可证信息保留在 [NOTICE.md](NOTICE.md)。
 
-AGPL-3.0
+程序源码以 [GNU AGPL-3.0](LICENSE) 发布。内置英语词库来自 [ECDICT](https://github.com/skywind3000/ECDICT)，其 MIT 许可证见 [ECDICT-LICENSE.txt](ECDICT-LICENSE.txt)。
