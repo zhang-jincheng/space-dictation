@@ -63,9 +63,9 @@ jobs:
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
-          includeUpdaterJson: true
+          includeUpdaterJson: false
           args: ${{ matrix.args }}
-          releaseAssetNamePattern: ${{ matrix.pattern }}
+          assetNamePattern: ${{ matrix.pattern }}
   publish:
     needs: desktop
     runs-on: ubuntu-latest
@@ -76,7 +76,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          gh release download "v$VERSION" --pattern latest.json --dir "$RUNNER_TEMP/update-manifest"
+          node scripts/build-update-manifest.mjs "$VERSION" "$RUNNER_TEMP/update-manifest"
+          gh release upload "v$VERSION" "$RUNNER_TEMP/update-manifest/latest.json" --clobber
           node scripts/verify-release.mjs "$RUNNER_TEMP/update-manifest/latest.json" "$VERSION"
           gh release upload "v$VERSION" docs/images/poster-hero.png docs/images/poster-features.png docs/images/poster-platforms.png --clobber
           gh release edit "v$VERSION" --draft=false --latest --notes-file "docs/releases/v$VERSION.md"

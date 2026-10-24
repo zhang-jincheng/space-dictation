@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node --test tests/model.test.mjs tests/close.test.mjs tests/theme.test.mjs",
+    "test": "node --test tests/model.test.mjs tests/close.test.mjs tests/theme.test.mjs tests/release.test.mjs",
     "test:offline": "cargo test --lib --no-run --manifest-path src-tauri/Cargo.toml && node tests/offline-flow.mjs"
   },
   "dependencies": {
