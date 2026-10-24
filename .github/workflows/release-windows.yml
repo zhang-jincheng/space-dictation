@@ -1,4 +1,4 @@
-name: Build Windows release
+name: Build signed desktop release
 
 on:
   push:
@@ -10,47 +10,73 @@ permissions:
   contents: write
 
 jobs:
-  windows:
-    name: Windows x64 installer
-    runs-on: windows-2022
-
+  desktop:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      # The action merges each platform into the same latest.json.
+      max-parallel: 1
+      matrix:
+        include:
+          - name: macOS Apple Silicon
+            runner: macos-14
+            args: --target aarch64-apple-darwin --bundles app,dmg
+            pattern: Space-Dictation_[version]_macOS-Apple-Silicon[ext]
+          - name: Windows x64
+            runner: windows-2022
+            args: --bundles nsis
+            pattern: Space-Dictation_[version]_Windows-x64[setup][ext]
+    runs-on: ${{ matrix.runner }}
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Build and publish Windows installer
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin' || '' }}
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lint
+      - run: npm test
+      - name: Read versioned release notes
+        id: notes
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          {
+            echo 'body<<SPACE_RELEASE_NOTES'
+            cat "docs/releases/v$VERSION.md"
+            echo 'SPACE_RELEASE_NOTES'
+          } >> "$GITHUB_OUTPUT"
+      - name: Build signed installers and updater manifest
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         with:
           tagName: v__VERSION__
           releaseName: 空格听写 v__VERSION__
-          releaseBody: |
-            空格控制的本地纸上英语听写工具。
-
-            - macOS 与 Windows 安装包
-            - 个人词表、CET-4、CET-6、IELTS
-            - 标准录音提前下载并缓存
-            - 核对页点词重播、错词重练和本地备份
-
-            详细说明见仓库 README。
-          releaseDraft: false
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: true
           prerelease: false
-          args: --bundles nsis
-          releaseAssetNamePattern: Space-Dictation_[version]_Windows-x64[setup][ext]
-
+          includeUpdaterJson: true
+          args: ${{ matrix.args }}
+          releaseAssetNamePattern: ${{ matrix.pattern }}
+  publish:
+    needs: desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish only after both platform builds finish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          gh release download "v$VERSION" --pattern latest.json --dir "$RUNNER_TEMP/update-manifest"
+          node scripts/verify-release.mjs "$RUNNER_TEMP/update-manifest/latest.json" "$VERSION"
+          gh release upload "v$VERSION" docs/images/poster-hero.png docs/images/poster-features.png docs/images/poster-platforms.png --clobber
+          gh release edit "v$VERSION" --draft=false --latest --notes-file "docs/releases/v$VERSION.md"

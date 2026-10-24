@@ -1,6 +1,7 @@
 mod commands;
 mod space;
 mod recordings;
+mod updates;
 mod db;
 mod engine;
 mod importer;
@@ -8,7 +9,7 @@ mod tts;
 mod library;
 mod ai;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 fn import_bundled_decks(app_dir: &std::path::Path) -> Result<(), String> {
     let db = db::Database::new(app_dir.to_path_buf())?;
@@ -48,6 +49,8 @@ fn import_bundled_decks(app_dir: &std::path::Path) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .manage(space::Speech::default())
+        .manage(updates::PendingUpdate::default())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
             match event {
                 tauri::WindowEvent::Focused(focused) => window.state::<space::Speech>().set_focus(*focused),
@@ -78,6 +81,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             space::space_prepare_audio, space::space_cancel_audio,
+            updates::space_check_update, updates::space_download_update,
             space::space_read_inbox, space::space_import_help, space::space_open_inbox, space::space_copy_text,
             space::space_words, space::space_load, space::space_save,
             space::space_put_deck, space::space_delete_deck,
@@ -159,6 +163,7 @@ pub fn run() {
                     let _ = window.unminimize();
                     let _ = window.show();
                     let _ = window.set_focus();
+                    let _ = app.emit("space-check-update", ());
                 }
             }
         });

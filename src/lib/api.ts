@@ -348,7 +348,7 @@ export async function spaceGuardClose(onError: (e: unknown) => void): Promise<()
   const win = getCurrentWindow();
   return win.onCloseRequested(event => flushBeforeClose(event, saveQueue, () => win.hide(), onError));
 }
-export interface SpaceImportHelp { folder: string; prompt: string; files: { name: string; path: string }[] }
+export interface SpaceImportHelp { folder: string; files: { name: string; path: string }[] }
 export const spaceImportHelp = () => invoke<SpaceImportHelp>('space_import_help');
 export const spaceOpenInbox = () => invoke<void>('space_open_inbox');
 export const spaceCopyText = (text: string) => invoke<void>('space_copy_text', { text });
@@ -362,3 +362,25 @@ export async function spaceAudioProgress(callback: (p: { ready: number; total: n
 
 export interface SpaceRecording { word: string; accent: string; author: string; source: string; license: string; license_url: string; url: string; digest: string }
 export interface SpaceAudioReport { ready: string[]; missing: { word: string; error: string }[]; sources: SpaceRecording[] }
+
+export interface SpaceUpdate { version: string; current: string; filename: string; notes: string }
+let startupUpdate: Promise<SpaceUpdate | null> | undefined;
+export function spaceCheckUpdate(refresh = false): Promise<SpaceUpdate | null> {
+  if (refresh) startupUpdate = undefined;
+  return startupUpdate ??= invoke<SpaceUpdate | null>('space_check_update').catch(() => null);
+}
+export async function spaceDownloadUpdate(version: string): Promise<void> {
+  await saveQueue;
+  return invoke<void>('space_download_update', { version });
+}
+
+export async function spaceOnReopen(callback: () => void): Promise<() => void> {
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen('space-check-update', callback);
+}
+
+export interface SpaceUpdateProgress { stage: 'downloading' | 'installing' | 'restarting'; received: number; total: number | null }
+export async function spaceOnUpdateProgress(callback: (progress: SpaceUpdateProgress) => void): Promise<() => void> {
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen<SpaceUpdateProgress>('space-update-progress', event => callback(event.payload));
+}

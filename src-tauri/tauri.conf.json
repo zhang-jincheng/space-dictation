@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "空格听写",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "identifier": "local.space-dictation",
   "build": {
     "frontendDist": "../dist",
@@ -39,6 +39,23 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true,
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIwNTVCNkRCNEVBNzk2RUMKUldUc2xxZE8yN1pWc05KK1R6cGlydjJaTU9kMVZRQUZjdnZLWVFzclhMU3dpTmI1UmIxbHB1Q2cK",
+      "endpoints": [
+        "https://github.com/zhang-jincheng/space-dictation/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "quiet"
+      }
+    }
   }
 }
