@@ -5,7 +5,7 @@ const [path, version] = process.argv.slice(2);
 const manifest = JSON.parse(await readFile(path, 'utf8'));
 assert.equal(manifest.version.replace(/^v/, ''), version);
 assert.ok(typeof manifest.notes === 'string' && manifest.notes.trim().length > 20, 'Release notes must describe changes');
-const release = JSON.parse(execFileSync('gh', ['release', 'view', `v${version}`, '--json', 'assets'], { encoding: 'utf8' }));
+const release = JSON.parse(execFileSync('gh', ['release', 'view', `v${version}`, '--repo', 'zhang-jincheng/space-dictation', '--json', 'assets'], { encoding: 'utf8' }));
 for (const [target, suffix] of [['darwin-aarch64', '.app.tar.gz'], ['windows-x86_64', '.exe']]) {
   const platform = manifest.platforms[target] ?? manifest.platforms[`${target}-nsis`];
   assert.ok(platform, `Missing platform ${target}`);
