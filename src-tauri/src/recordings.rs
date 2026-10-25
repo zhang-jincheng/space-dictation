@@ -47,6 +47,9 @@ pub fn audio_path(dir: &Path, text: &str, accent: &str) -> PathBuf {
         .join(format!("{:x}.mp3", Sha256::digest(key)))
 }
 pub fn cached(dir: &Path, text: &str, accent: &str) -> Option<Recording> {
+    if let Some(recording) = crate::personal_recordings::cached(dir, text) {
+        return Some(recording);
+    }
     let path = audio_path(dir, text, accent);
     let meta: Recording =
         serde_json::from_slice(&std::fs::read(path.with_extension("json")).ok()?).ok()?;
@@ -59,7 +62,7 @@ pub fn cached(dir: &Path, text: &str, accent: &str) -> Option<Recording> {
     }
     Some(meta)
 }
-fn decodable_audio(path: &Path) -> bool {
+pub(crate) fn decodable_audio(path: &Path) -> bool {
     let Ok(file) = std::fs::File::open(path) else {
         return false;
     };

@@ -346,7 +346,7 @@ export async function spaceRestore(path: string): Promise<SpaceState> {
 export async function spaceGuardClose(onError: (e: unknown) => void): Promise<() => void> {
   const { getCurrentWindow } = await import('@tauri-apps/api/window');
   const win = getCurrentWindow();
-  return win.onCloseRequested(event => flushBeforeClose(event, saveQueue, () => win.hide(), onError));
+  return win.onCloseRequested(event => flushBeforeClose(event, saveQueue, async () => { await spaceCancelRecording(); await win.hide(); }, onError));
 }
 export interface SpaceImportHelp { folder: string; files: { name: string; path: string }[] }
 export const spaceImportHelp = () => invoke<SpaceImportHelp>('space_import_help');
@@ -355,6 +355,9 @@ export const spaceCopyText = (text: string) => invoke<void>('space_copy_text', {
 export const spaceReadPath = (path: string) => invoke<string>('space_read_inbox', { path });
 export const spacePrepareAudio = (words: Word[], voice: string, rate: number) => invoke<SpaceAudioReport>('space_prepare_audio', { words, voice, rate });
 export const spaceCancelAudio = () => invoke<void>('space_cancel_audio');
+export const spaceStartRecording = (word: string) => invoke<void>('space_start_recording', { word });
+export const spaceFinishRecording = () => invoke<SpaceRecording>('space_finish_recording');
+export const spaceCancelRecording = () => invoke<void>('space_cancel_recording');
 export async function spaceAudioProgress(callback: (p: { ready: number; total: number }) => void): Promise<() => void> {
   const { listen } = await import('@tauri-apps/api/event');
   return listen<{ ready: number; total: number }>('space-audio-progress', event => callback(event.payload));

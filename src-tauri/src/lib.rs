@@ -1,6 +1,7 @@
 mod commands;
 mod space;
 mod recordings;
+mod personal_recordings;
 mod updates;
 mod db;
 mod engine;
@@ -49,12 +50,16 @@ fn import_bundled_decks(app_dir: &std::path::Path) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .manage(space::Speech::default())
+        .manage(personal_recordings::Microphone::default())
         .manage(updates::PendingUpdate::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
             match event {
                 tauri::WindowEvent::Focused(focused) => window.state::<space::Speech>().set_focus(*focused),
-                tauri::WindowEvent::Destroyed => window.state::<space::Speech>().stop(),
+                tauri::WindowEvent::Destroyed => {
+                    window.state::<space::Speech>().stop();
+                    window.state::<personal_recordings::Microphone>().cancel();
+                },
                 _ => {}
             }
         })
@@ -81,6 +86,9 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             space::space_prepare_audio, space::space_cancel_audio,
+            personal_recordings::space_start_recording,
+            personal_recordings::space_finish_recording,
+            personal_recordings::space_cancel_recording,
             updates::space_check_update, updates::space_download_update,
             space::space_read_inbox, space::space_import_help, space::space_open_inbox, space::space_copy_text,
             space::space_words, space::space_load, space::space_save,

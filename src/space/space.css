@@ -220,3 +220,17 @@ body { margin: 0; }
 .update-notes h3 { font-size: 13px; font-weight: 700; margin: 0 0 9px; }
 .update-notes p { white-space: pre-wrap; margin: 0; font-size: 12px; line-height: 1.8; }
 .update-modal { max-height: calc(100dvh - 40px); overflow-y: auto; }
+
+.missing-recording-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 16px 0; border-bottom: 2px solid var(--line); }
+.missing-recording-row > div { min-width: 0; overflow-wrap: anywhere; }
+.missing-recording-row p { font-size: 13px; }
+.missing-recording-row button { flex-shrink: 0; }
+.recorder-shade { z-index: 120; }
+.recorder-modal .record-word { font-size: clamp(24px, 4vw, 42px); font-weight: 800; overflow-wrap: anywhere; }
+.mic-status { display: flex; align-items: center; gap: 12px; padding: 20px 0; font-weight: 700; }
+.mic-status svg { width: 32px; height: 32px; flex-shrink: 0; }
+.mic-status.is-recording svg { color: #e94545; animation: mic-pulse 1s ease-in-out infinite; }
+@keyframes mic-pulse { 50% { opacity: .35; transform: scale(.9); } }
+@media (prefers-reduced-motion: reduce) { .mic-status.is-recording svg { animation: none; } }
+.record-link { display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; padding: 6px 10px; border: 1px solid var(--outline); border-radius: 7px; font-size: 12px; background: var(--yellow-soft); }
+.record-link svg { width: 16px; height: 16px; }

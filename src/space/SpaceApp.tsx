@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRightIcon, ArrowUpTrayIcon, ArrowDownTrayIcon, BookOpenIcon, CheckIcon, XMarkIcon, SpeakerWaveIcon, AdjustmentsHorizontalIcon, ArrowPathIcon, PlusIcon, DocumentDuplicateIcon, FolderOpenIcon, HomeIcon, PencilSquareIcon, TrashIcon, ExclamationCircleIcon, PauseIcon } from '@heroicons/react/24/outline';
+import { ArrowRightIcon, ArrowUpTrayIcon, ArrowDownTrayIcon, BookOpenIcon, CheckIcon, XMarkIcon, SpeakerWaveIcon, AdjustmentsHorizontalIcon, ArrowPathIcon, PlusIcon, DocumentDuplicateIcon, FolderOpenIcon, HomeIcon, PencilSquareIcon, TrashIcon, ExclamationCircleIcon, PauseIcon, MicrophoneIcon } from '@heroicons/react/24/outline';
 import * as api from '../lib/api';
 import { t } from '../lib/i18n';
 import Select from '../components/Select';
@@ -51,6 +51,12 @@ export default function SpaceApp() {
   const latest = useRef<AppState>(initialState);
   const [decks, setDecks] = useState<Deck[]>([]);
   const [pendingAudio, setPendingAudio] = useState<{ session: Session; report: api.SpaceAudioReport } | null>(null);
+  const [recordWord, setRecordWord] = useState<string | null>(null);
+  const [micStatus, setMicStatus] = useState<'idle' | 'starting' | 'recording' | 'saving' | 'saved'>('idle');
+  const [micError, setMicError] = useState('');
+  const [micSeconds, setMicSeconds] = useState(0);
+  const micGeneration = useRef(0);
+  const micFinishing = useRef(false);
   const [recording, setRecording] = useState<api.SpaceRecording | null>(null);
   const [page, setPage] = useState<Page>('home');
   useEffect(() => { window.scrollTo(0, 0); }, [page]);
@@ -175,7 +181,7 @@ export default function SpaceApp() {
     const onKey = (e: KeyboardEvent) => {
       if (currentPage.current !== 'listen') return;
       const target = e.target instanceof Element ? e.target : null;
-      const blocked = !!update || !!confirm || !!pendingAudio || busy || !!target?.closest('input,textarea,select,button,[contenteditable="true"],[role="dialog"],[role="combobox"]');
+      const blocked = !!update || !!confirm || !!pendingAudio || !!recordWord || busy || !!target?.closest('input,textarea,select,button,[contenteditable="true"],[role="dialog"],[role="combobox"]');
       const action = keyAction(e, document.hasFocus() && document.visibilityState === 'visible', blocked);
       if (!action) { if (e.key === ' ' && e.repeat && !blocked) e.preventDefault(); return; }
       e.preventDefault();
@@ -190,7 +196,7 @@ export default function SpaceApp() {
     const visibility = () => { if (document.hidden) stop(); };
     document.addEventListener('visibilitychange', visibility);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onUp); window.removeEventListener('blur', onBlur); document.removeEventListener('visibilitychange', visibility); };
-  }, [next, repeat, stop, busy, confirm, pendingAudio, update]);
+  }, [next, repeat, stop, busy, confirm, pendingAudio, recordWord, update]);
 
   const session = data?.sessions.find(s => s.id === (viewSession || data.active));
   const active = data?.sessions.find(s => s.id === data.active && s.phase !== 'done');
@@ -214,7 +220,7 @@ export default function SpaceApp() {
     stop();
     const options = latest.current.settings;
     const result = await api.spacePrepareAudio([word], options.accent, options.rate);
-    if (result.missing.length) throw new Error(result.missing.map(m => `${m.word}: ${m.error}`).join('；'));
+    if (result.missing.length) { setRecordWord(word.front); setMicStatus('idle'); setMicError(result.missing[0].error); return; }
     setRecording(result.sources[0] || null); speak(word);
   });
   const start = () => void run(async () => {
@@ -272,10 +278,55 @@ export default function SpaceApp() {
   const reviewWords = session?.words.filter((_, i) => session.marks[i] === false) || [];
   const duplicates = editor ? duplicateIds(editor.words) : new Set<string>();
   const importPrompt = importHelp ? buildImportPrompt(importHelp.folder, promptAssistant) : '';
-  const missingGroups = pendingAudio ? Object.entries(pendingAudio.report.missing.reduce<Record<string, string[]>>((groups, item) => {
-    (groups[item.error] ||= []).push(item.word);
-    return groups;
-  }, {})) : [];
+  const openRecorder = (word: string) => { stop(); setRecordWord(word); setMicStatus('idle'); setMicError(''); setMicSeconds(0); };
+  const cancelRecorder = useCallback(() => {
+    ++micGeneration.current;
+    stop();
+    void api.spaceCancelRecording().catch(report);
+    setRecordWord(null); setMicStatus('idle'); setMicError('');
+  }, [report, stop]);
+  const finishRecording = useCallback(async () => {
+    if (micFinishing.current) return;
+    micFinishing.current = true;
+    const generation = micGeneration.current;
+    setMicStatus('saving');
+    try {
+      const source = await api.spaceFinishRecording();
+      if (generation !== micGeneration.current) return;
+      setRecording(source); setMicStatus('saved');
+      setPendingAudio(pending => {
+        if (!pending) return pending;
+        const matches = (word: string) => word.trim().toLowerCase() === source.word;
+        return { ...pending, report: {
+          ready: [...new Set([...pending.report.ready, ...pending.session.words.filter(w => matches(w.front)).map(w => w.id)])],
+          missing: pending.report.missing.filter(w => !matches(w.word)),
+          sources: [...pending.report.sources.filter(w => !matches(w.word)), source],
+        } };
+      });
+    } catch (e) { if (generation === micGeneration.current) { setMicError(String(e)); setMicStatus('idle'); } }
+    finally { micFinishing.current = false; }
+  }, []);
+  const beginRecording = async () => {
+    if (!recordWord) return;
+    const generation = ++micGeneration.current;
+    stop(); setMicStatus('starting'); setMicError(''); setMicSeconds(0);
+    try {
+      await api.spaceStartRecording(recordWord);
+      if (generation === micGeneration.current) setMicStatus('recording');
+    } catch (e) { if (generation === micGeneration.current) { setMicError(String(e)); setMicStatus('idle'); } }
+  };
+  useEffect(() => {
+    if (micStatus !== 'recording') return;
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      const seconds = Math.floor((Date.now() - started) / 1000);
+      setMicSeconds(seconds);
+      if (seconds >= 59) { clearInterval(timer); void finishRecording(); }
+    }, 200);
+    const blur = () => cancelRecorder();
+    window.addEventListener('blur', blur);
+    return () => { clearInterval(timer); window.removeEventListener('blur', blur); };
+  }, [micStatus, finishRecording, cancelRecorder]);
   const copyImportPrompt = (assistant: 'chatgpt' | 'doubao') => void run(async () => {
     const prompt = importHelp ? buildImportPrompt(importHelp.folder, assistant) : '';
     if (!prompt) throw new Error(tr('promptMissing'));
@@ -316,7 +367,7 @@ export default function SpaceApp() {
       {page === 'review' && session && <>
         <div className="page-heading"><p className="eyebrow">{session.name}</p><h1>{tr(session.phase === 'done' ? 'finished' : 'review')}</h1><p>{tr(session.phase === 'done' ? 'finishHint' : 'reviewHint')}</p></div>
         <div className="review-summary"><strong>{accuracy(session) === null ? tr('reviewed', { n: session.marks.filter(m => m !== null).length, total: session.words.length }) : tr('result', { n: accuracy(session)! })}</strong><span>{tr('reviewOnlyWrong')} {reviewWords.length}</span></div>
-        <div className="word-table review-table">{session.words.map((w, i) => <div className="word-row" key={w.id}><span className="row-number">{String(i + 1).padStart(2, '0')}</span><div className="word-content"><button className="word-play" disabled={busy} aria-label={tr('playWord', { word: w.front })} onClick={() => replay(w)}><strong lang="en">{w.front}</strong><SpeakerWaveIcon /></button><p>{w.back || tr('noDefinition')}</p></div><div className="mark-actions"><button className={`mark correct ${session.marks[i] === true ? 'selected' : ''}`} disabled={session.phase === 'done'} aria-pressed={session.marks[i] === true} aria-label={`${tr('correct')} ${w.front}`} onClick={() => mark(i, true)}><CheckIcon />{tr('correct')}</button><button className={`mark incorrect ${session.marks[i] === false ? 'selected' : ''}`} disabled={session.phase === 'done'} aria-pressed={session.marks[i] === false} aria-label={`${tr('incorrect')} ${w.front}`} onClick={() => mark(i, false)}><XMarkIcon />{tr('incorrect')}</button>{session.marks[i] === null && <small>{tr('pendingMark')}</small>}</div></div>)}</div>
+        <div className="word-table review-table">{session.words.map((w, i) => <div className="word-row" key={w.id}><span className="row-number">{String(i + 1).padStart(2, '0')}</span><div className="word-content"><button className="word-play" disabled={busy} aria-label={tr('playWord', { word: w.front })} onClick={() => replay(w)}><strong lang="en">{w.front}</strong><SpeakerWaveIcon /></button><p>{w.back || tr('noDefinition')}</p><button className="record-link" aria-label={tr('recordFor', { word: w.front })} onClick={() => openRecorder(w.front)}><MicrophoneIcon />{tr('recordOwn')}</button></div><div className="mark-actions"><button className={`mark correct ${session.marks[i] === true ? 'selected' : ''}`} disabled={session.phase === 'done'} aria-pressed={session.marks[i] === true} aria-label={`${tr('correct')} ${w.front}`} onClick={() => mark(i, true)}><CheckIcon />{tr('correct')}</button><button className={`mark incorrect ${session.marks[i] === false ? 'selected' : ''}`} disabled={session.phase === 'done'} aria-pressed={session.marks[i] === false} aria-label={`${tr('incorrect')} ${w.front}`} onClick={() => mark(i, false)}><XMarkIcon />{tr('incorrect')}</button>{session.marks[i] === null && <small>{tr('pendingMark')}</small>}</div></div>)}</div>
         <div className="bottom-actions"><button className="secondary" onClick={() => go('home')}>{tr('back')}</button>{session.phase !== 'done' ? <button className="primary" disabled={accuracy(session) === null} title={accuracy(session) === null ? tr('finishRequired') : undefined} onClick={finish}>{tr('finish')}<CheckIcon /></button> : reviewWords.length > 0 && <button className="primary" disabled={busy} onClick={() => void run(async () => { await startWords(tr('reviewOnlyWrong'), reviewWords); })}>{tr('wrongPractice')}<ArrowRightIcon /></button>}</div>
       </>}
       {page === 'decks' && <>
@@ -343,12 +394,13 @@ export default function SpaceApp() {
         <section className="settings-section"><h2>{tr('voiceTitle')}</h2><p>{tr('recordingHint')}</p><div className="settings-grid"><Select label={tr('accent')} value={data.settings.accent} onChange={accent => { stop(); setSetting({ accent }); }} options={[{ value: 'en_US', label: tr('us') }, { value: 'en_GB', label: tr('uk') }]} /><label className="field">{tr('rate')}<input aria-label={tr('rate')} type="range" min="80" max="300" step="5" value={data.settings.rate} onChange={e => setSetting({ rate: Number(e.target.value) })} /><span className="small muted">{tr('rateHint', { n: (data.settings.rate / 175).toFixed(2) })}</span></label></div><button className="secondary" disabled={busy} onClick={() => { if (speech.playing) stop(); else replay({ id: 'test', front: 'apple', back: '' }); }}>{speech.playing ? <PauseIcon /> : <SpeakerWaveIcon />}{tr(speech.playing ? 'stop' : 'testVoice')}</button></section>
         <p className="muted small">{tr('cacheHint')}</p><section className="settings-section backup-section"><h2>{tr('backupTitle')}</h2><p>{tr('backupHint')}</p><div className="button-group"><button className="primary" disabled={busy} onClick={() => void run(async () => { if (await api.spaceExport(latest.current)) setNotice(tr('exported')); })}><ArrowDownTrayIcon />{tr('export')}</button><button className="secondary" disabled={busy} onClick={() => void run(async () => { const path = await api.spaceChooseBackup(); if (path) setConfirm({ kind: 'restore', value: path, name: path.split('/').pop() || path }); })}><ArrowPathIcon />{tr('restore')}</button></div></section>
       </>}
-      {recording && ['review', 'settings'].includes(page) && <section className="recording-source"><strong>{tr('recordingSource', { word: recording.word })}</strong><p>{tr('actualAccent')}：{tr(recording.accent === 'en_US' ? 'usActual' : recording.accent === 'en_GB' ? 'ukActual' : 'otherAccent')} · {recording.author || tr('sourceAuthor')} · {recording.license}</p><p>{recording.source}</p><p>{recording.license_url}</p></section>}
+      {recording && ['review', 'settings'].includes(page) && <section className="recording-source"><strong>{tr('recordingSource', { word: recording.word })}</strong><p>{tr('actualAccent')}：{tr(recording.accent === 'personal' ? 'recordPersonal' : recording.accent === 'en_US' ? 'usActual' : recording.accent === 'en_GB' ? 'ukActual' : 'otherAccent')} · {recording.author || tr('sourceAuthor')} · {recording.license}</p><p>{recording.source}</p><p>{recording.license_url}</p>{recording.accent === 'personal' && <button className="secondary" onClick={() => openRecorder(recording.word)}><MicrophoneIcon />{tr('recordAgain')}</button>}</section>}
       </div>
       {busy && <div className="busy-indicator" role="status">{audioProgress ? tr('preparingAudio', audioProgress) : tr('busy')}{audioProgress && <button className="text-button" onClick={() => void api.spaceCancelAudio().catch(report)}>{tr('cancelAudio')}</button>}</div>}
     </main>
-    {update && !confirm && !pendingAudio && !busy && <div className="modal-shade"><section role="dialog" aria-modal="true" aria-labelledby="update-title" className="confirm-modal update-modal" aria-busy={updating}><h2 id="update-title">{tr('updateTitle')}</h2><p>{tr('updateVersion', { current: update.current, version: update.version })}</p><p className="small muted">{tr('updateAsset', { filename: update.filename })}</p><section className="update-notes" aria-label={tr('updateChanges')}><h3>{tr('updateChanges')}</h3><p>{update.notes || tr('updateNotesMissing')}</p></section><p>{tr('updateHint')}</p>{updateError && <p className="import-note" role="alert">{updateError}</p>}{updating && <div role="status" className="update-progress"><p>{tr(updateProgress?.stage === 'installing' ? 'updateInstalling' : updateProgress?.stage === 'restarting' ? 'updateRestarting' : 'updateDownloading')}{updateProgress?.stage === 'downloading' && !!updateProgress.total && ` ${Math.min(100, Math.floor(updateProgress.received * 100 / updateProgress.total))}%`}</p><progress aria-label={tr('updateDownloading')} max={100} value={updateProgress?.stage === 'downloading' && updateProgress.total ? Math.min(100, updateProgress.received * 100 / updateProgress.total) : undefined} /></div>}<div className="button-group"><button className="update-later" autoFocus disabled={updating} onClick={() => setUpdate(null)}>{tr('updateLater')}</button><button className="update-now" disabled={updating} onClick={() => void installUpdate()}>{tr(updating ? 'updateDownloading' : 'updateNow')}</button></div></section></div>}
-    {pendingAudio && <div className="modal-shade"><section role="dialog" aria-modal="true" aria-labelledby="audio-title" className="confirm-modal"><h2 id="audio-title">{tr('missingAudioTitle')}</h2><p>{tr('missingAudioHint')}</p><div className="missing-recordings">{missingGroups.map(([message, words]) => <p key={message}><strong>{words.join('、')}</strong><br />{message}</p>)}</div><div className="button-group"><button className="secondary" onClick={() => setPendingAudio(null)}>{tr('cancel')}</button><button className="primary" disabled={!pendingAudio.report.ready.length} onClick={() => { const words = pendingAudio.session.words.filter(w => pendingAudio.report.ready.includes(w.id)); beginPrepared({ ...pendingAudio.session, words, marks: words.map(() => null) }); }}>{tr('startAvailable', { n: pendingAudio.report.ready.length })}</button></div></section></div>}
+    {update && !confirm && !pendingAudio && !recordWord && !busy && <div className="modal-shade"><section role="dialog" aria-modal="true" aria-labelledby="update-title" className="confirm-modal update-modal" aria-busy={updating}><h2 id="update-title">{tr('updateTitle')}</h2><p>{tr('updateVersion', { current: update.current, version: update.version })}</p><p className="small muted">{tr('updateAsset', { filename: update.filename })}</p><section className="update-notes" aria-label={tr('updateChanges')}><h3>{tr('updateChanges')}</h3><p>{update.notes || tr('updateNotesMissing')}</p></section><p>{tr('updateHint')}</p>{updateError && <p className="import-note" role="alert">{updateError}</p>}{updating && <div role="status" className="update-progress"><p>{tr(updateProgress?.stage === 'installing' ? 'updateInstalling' : updateProgress?.stage === 'restarting' ? 'updateRestarting' : 'updateDownloading')}{updateProgress?.stage === 'downloading' && !!updateProgress.total && ` ${Math.min(100, Math.floor(updateProgress.received * 100 / updateProgress.total))}%`}</p><progress aria-label={tr('updateDownloading')} max={100} value={updateProgress?.stage === 'downloading' && updateProgress.total ? Math.min(100, updateProgress.received * 100 / updateProgress.total) : undefined} /></div>}<div className="button-group"><button className="update-later" autoFocus disabled={updating} onClick={() => setUpdate(null)}>{tr('updateLater')}</button><button className="update-now" disabled={updating} onClick={() => void installUpdate()}>{tr(updating ? 'updateDownloading' : 'updateNow')}</button></div></section></div>}
+    {pendingAudio && <div className="modal-shade" inert={!!recordWord}><section role="dialog" aria-modal="true" aria-labelledby="audio-title" className="confirm-modal"><h2 id="audio-title">{tr(pendingAudio.report.missing.length ? 'missingAudioTitle' : 'recordAllReady')}</h2>{pendingAudio.report.missing.length > 0 && <p>{tr('missingAudioHint')}</p>}<div className="missing-recordings">{pendingAudio.report.missing.map(item => <div className="missing-recording-row" key={item.word}><div><strong lang="en">{item.word}</strong><p>{item.error}</p></div><button className="secondary" onClick={() => openRecorder(item.word)}><MicrophoneIcon />{tr('recordStart')}</button></div>)}{!pendingAudio.report.missing.length && <p>{tr('recordAllReady')}</p>}</div><div className="button-group"><button className="secondary" onClick={() => setPendingAudio(null)}>{tr('cancel')}</button><button className="primary" disabled={!pendingAudio.report.ready.length} onClick={() => { const words = pendingAudio.session.words.filter(w => pendingAudio.report.ready.includes(w.id)); beginPrepared({ ...pendingAudio.session, words, marks: words.map(() => null) }); }}>{tr('startAvailable', { n: pendingAudio.report.ready.length })}</button></div></section></div>}
+    {recordWord && <div className="modal-shade recorder-shade"><section role="dialog" aria-modal="true" aria-labelledby="record-title" className="confirm-modal recorder-modal"><h2 id="record-title">{tr('recordTitle')}</h2><p className="record-word" lang="en">{recordWord}</p><p>{tr('recordHint')}</p><div className={`mic-status ${micStatus === 'recording' ? 'is-recording' : ''}`} role="status"><MicrophoneIcon /><span>{tr(`recordStatus${micStatus}`, { n: micSeconds })}</span></div>{micError && <p className="import-note" role="alert">{micError}</p>}<div className="button-group"><button className="secondary" disabled={micStatus === 'saving'} onClick={cancelRecorder}>{tr(micStatus === 'saved' ? 'recordDone' : 'cancel')}</button>{micStatus === 'saved' && <button className="secondary" onClick={() => speak({ id: 'personal-preview', front: recordWord, back: '' })}><SpeakerWaveIcon />{tr('recordPreview')}</button>}{micStatus === 'recording' ? <button className="primary" onClick={() => void finishRecording()}><CheckIcon />{tr('recordSave')}</button> : <button className="primary" disabled={micStatus === 'starting' || micStatus === 'saving'} autoFocus onClick={() => void beginRecording()}><MicrophoneIcon />{tr(micStatus === 'saved' ? 'recordAgain' : 'recordStart')}</button>}</div></section></div>}
     {confirm && <div className="modal-shade"><section role="dialog" aria-modal="true" aria-labelledby="confirm-title" className="confirm-modal"><h2 id="confirm-title">{tr(confirm.kind === 'delete' ? 'deleteDeck' : 'restore')}</h2><p>{confirm.kind === 'delete' ? tr('deleteConfirm', { name: confirm.name }) : tr('restoreConfirm')}</p>{confirm.kind === 'restore' && <p className="small muted">{tr('restoreFile', { name: confirm.name })}</p>}{error && <p className="import-note" role="alert">{error}</p>}<div className="button-group"><button className="secondary" autoFocus disabled={busy} onClick={() => setConfirm(null)}>{tr('cancel')}</button><button className="primary" disabled={busy} onClick={confirmAction}>{tr(confirm.kind === 'delete' ? 'confirmDelete' : 'confirmRestore')}</button></div></section></div>}
   </div>;
 }

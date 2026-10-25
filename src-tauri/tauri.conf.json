@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "空格听写",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "identifier": "local.space-dictation",
   "build": {
     "frontendDist": "../dist",
@@ -31,6 +31,8 @@
       "app"
     ],
     "macOS": {
+      "infoPlist": "Info.plist",
+      "entitlements": "Entitlements.plist",
       "signingIdentity": "-"
     },
     "icon": [

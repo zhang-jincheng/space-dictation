@@ -14,7 +14,7 @@ jobs:
     name: ${{ matrix.name }}
     strategy:
       fail-fast: false
-      # The action merges each platform into the same latest.json.
+      # Serialize release asset uploads; publish generates the complete manifest.
       max-parallel: 1
       matrix:
         include:
@@ -74,10 +74,11 @@ jobs:
       - name: Publish only after both platform builds finish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: zhang-jincheng/space-dictation
         run: |
           VERSION=$(node -p "require('./package.json').version")
           node scripts/build-update-manifest.mjs "$VERSION" "$RUNNER_TEMP/update-manifest"
           gh release upload "v$VERSION" "$RUNNER_TEMP/update-manifest/latest.json" --clobber
           node scripts/verify-release.mjs "$RUNNER_TEMP/update-manifest/latest.json" "$VERSION"
-          gh release upload "v$VERSION" docs/images/poster-hero.png docs/images/poster-features.png docs/images/poster-platforms.png --clobber
+          gh release upload "v$VERSION" docs/images/poster-hero.png docs/images/poster-features.png docs/images/poster-platforms.png docs/images/poster-mac-install-v1.3.1.png --clobber
           gh release edit "v$VERSION" --draft=false --latest --notes-file "docs/releases/v$VERSION.md"

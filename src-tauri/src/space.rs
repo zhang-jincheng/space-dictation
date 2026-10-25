@@ -351,10 +351,11 @@ fn play_cached(
     voice: &str,
     rate: u32,
 ) -> Result<(), String> {
-    let path = crate::recordings::audio_path(dir, text, voice);
-    if crate::recordings::cached(dir, text, voice).is_none() {
-        return Err("录音尚未下载，请返回听写台重新准备，或点击核对页单词下载".into());
-    }
+    let recording = crate::recordings::cached(dir, text, voice)
+        .ok_or("录音尚未准备，请返回听写台下载或录制自己的发音")?;
+    let path = if recording.accent == "personal" {
+        crate::personal_recordings::path(dir, text)
+    } else { crate::recordings::audio_path(dir, text, voice) };
     let file = std::fs::File::open(path).map_err(|e| format!("无法打开本地录音：{e}"))?;
     let source =
         rodio::Decoder::new(BufReader::new(file)).map_err(|e| format!("无法解码本地录音：{e}"))?;
