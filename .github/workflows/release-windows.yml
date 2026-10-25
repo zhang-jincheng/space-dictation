@@ -80,5 +80,7 @@ jobs:
           node scripts/build-update-manifest.mjs "$VERSION" "$RUNNER_TEMP/update-manifest"
           gh release upload "v$VERSION" "$RUNNER_TEMP/update-manifest/latest.json" --clobber
           node scripts/verify-release.mjs "$RUNNER_TEMP/update-manifest/latest.json" "$VERSION"
-          gh release upload "v$VERSION" docs/images/poster-hero.png docs/images/poster-features.png docs/images/poster-platforms.png docs/images/poster-mac-install-v1.3.1.png --clobber
+          gh release upload "v$VERSION" docs/images/poster-hero.png docs/images/poster-features.png docs/images/poster-platforms.png docs/images/poster-mac-install-actual.png --clobber
+          cp docs/mac-install-copy.html "$RUNNER_TEMP/Mac-Install-Guide.html"
+          gh release upload "v$VERSION" "$RUNNER_TEMP/Mac-Install-Guide.html" --clobber
           gh release edit "v$VERSION" --draft=false --latest --notes-file "docs/releases/v$VERSION.md"

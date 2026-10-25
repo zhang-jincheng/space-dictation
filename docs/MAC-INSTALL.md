@@ -2,7 +2,7 @@
 
 **请先看完本指南。只有遇到打开拦截、且确认安装包来自本项目官方 Release 时，才考虑下述处理。正常打开无需执行命令。**
 
-![首次打开指南](images/poster-mac-install-v1.3.1.png)
+![首次打开指南](images/poster-mac-install-actual.png)
 
 ## 两种方法怎么选
 
@@ -35,6 +35,13 @@
 这是 [Apple 官方说明](https://support.apple.com/zh-cn/102445) 中提供的处理方式。
 
 ## 方法二：在终端移除该应用的下载隔离标记
+
+**一键复制有两个入口：**
+
+- 在本页下方的命令代码块右上角，点击 GitHub 的 **复制按钮**（鼠标移到代码块上即可显示）。复制的内容只有命令，不含说明。
+- 下载 [带大号“复制 sudo 命令”按钮的安装帮助页](https://github.com/zhang-jincheng/space-dictation/releases/latest/download/Mac-Install-Guide.html)，在浏览器中打开后点击按钮。无需先打开空格听写 App。
+
+应用已能打开时，也可进入“设置与备份”里的“Mac 首次打开”区域复制同一条命令。
 
 适用情况：方法一没有成功，且确认仍是下载隔离标记造成的首次打开拦截。它也可能解决部分由隔离标记触发的“已损坏”提示，但不能仅凭弹窗文字认定原因。
 

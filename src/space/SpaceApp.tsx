@@ -7,6 +7,7 @@ import type { Deck } from '../types';
 import { initialState, advance, makeSession, wrongWords, accuracy, parseWords, duplicateIds, keyAction, latchKey } from './model';
 import type { AppState, Session, Word, WordDeck } from './model';
 import { buildImportPrompt } from './importPrompt';
+import { macInstallCommand } from './macInstall';
 import { applyTheme, readTheme, themeStorageKey, watchTheme } from './theme';
 import type { ThemePreference } from './theme';
 import './space.css';
@@ -63,6 +64,7 @@ export default function SpaceApp() {
   const [selected, setSelected] = useState('builtin-CET4');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [installCopied, setInstallCopied] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -390,6 +392,7 @@ export default function SpaceApp() {
       </>}
       {page === 'settings' && <>
         <div className="page-heading"><p className="eyebrow">JUST THE WAY YOU LIKE IT</p><h1>{tr('settings')}</h1><p>{tr('language')}</p></div>
+        {/Macintosh|Mac OS X/.test(navigator.userAgent) && <section className="settings-section install-help"><h2>{tr('installHelpTitle')}</h2><p>{tr('installHelpHint')}</p><ol><li>{tr('installHelpSettings')}</li><li>{tr('installHelpTerminal')}</li></ol><textarea className="install-command" readOnly aria-label={tr('installCommandLabel')} value={macInstallCommand} /><button className="primary" disabled={busy} onClick={() => void run(async () => { await api.spaceCopyText(macInstallCommand); setInstallCopied(true); })}><DocumentDuplicateIcon />{tr(installCopied ? 'installCopied' : 'copyInstallCommand')}</button>{installCopied && <p role="status">{tr('installCommandCopied')}</p>}<p className="small muted">{tr('installCommandNotice')}</p></section>}
         <section className="settings-section appearance-section"><h2>{tr('themeTitle')}</h2><p className="muted small">{tr('themeHint')}</p>{themeChoices('settings')}</section>
         <section className="settings-section"><h2>{tr('voiceTitle')}</h2><p>{tr('recordingHint')}</p><div className="settings-grid"><Select label={tr('accent')} value={data.settings.accent} onChange={accent => { stop(); setSetting({ accent }); }} options={[{ value: 'en_US', label: tr('us') }, { value: 'en_GB', label: tr('uk') }]} /><label className="field">{tr('rate')}<input aria-label={tr('rate')} type="range" min="80" max="300" step="5" value={data.settings.rate} onChange={e => setSetting({ rate: Number(e.target.value) })} /><span className="small muted">{tr('rateHint', { n: (data.settings.rate / 175).toFixed(2) })}</span></label></div><button className="secondary" disabled={busy} onClick={() => { if (speech.playing) stop(); else replay({ id: 'test', front: 'apple', back: '' }); }}>{speech.playing ? <PauseIcon /> : <SpeakerWaveIcon />}{tr(speech.playing ? 'stop' : 'testVoice')}</button></section>
         <p className="muted small">{tr('cacheHint')}</p><section className="settings-section backup-section"><h2>{tr('backupTitle')}</h2><p>{tr('backupHint')}</p><div className="button-group"><button className="primary" disabled={busy} onClick={() => void run(async () => { if (await api.spaceExport(latest.current)) setNotice(tr('exported')); })}><ArrowDownTrayIcon />{tr('export')}</button><button className="secondary" disabled={busy} onClick={() => void run(async () => { const path = await api.spaceChooseBackup(); if (path) setConfirm({ kind: 'restore', value: path, name: path.split('/').pop() || path }); })}><ArrowPathIcon />{tr('restore')}</button></div></section>

@@ -45,11 +45,11 @@
 | macOS Apple 芯片 | `.dmg` | 拖入“应用程序”。当前为个人发布版本，首次打开遇拦截请先阅读下方完整安装指南。 |
 | Windows x64 | `-setup.exe` | 运行安装程序。当前为个人发布版本，Windows 可能显示 SmartScreen 提示。 |
 
-**Mac 首次打开遇到“无法验证”或“已损坏”？请先完整阅读 [Mac 安装与打开指南](docs/MAC-INSTALL.md)。** 正常打开无需执行终端命令。
+**Mac 首次打开遇到“无法验证”或“已损坏”？请先完整阅读 [Mac 安装与打开指南](docs/MAC-INSTALL.md)。** 正常打开无需执行终端命令。需要复制命令时，可下载 [带一键复制按钮的安装帮助页](https://github.com/zhang-jincheng/space-dictation/releases/latest/download/Mac-Install-Guide.html)，用浏览器打开。
 
 遇到“无法验证”提示，先确认下载来源，然后：**系统设置 → 隐私与安全性 → 向下滚动到安全性区域 → 仍要打开**。如有密码或再次确认提示，按要求验证并点击“打开”。 方法一仍未解决、且确认官方原包完整并仍因下载隔离标记受阻时，可按完整指南尝试方法二的终端命令；任一种成功后即可停止。
 
-![Mac 首次打开指南](docs/images/poster-mac-install-v1.3.1.png)
+![Mac 首次打开指南](docs/images/poster-mac-install-actual.png)
 
 应用无需账号。词表、录音缓存、错词和练习记录均保存在本机。
 
