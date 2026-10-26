@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { macInstallCommand } from '../src/space/macInstall.ts';
+const macInstallCommand = 'sudo xattr -rd com.apple.quarantine "/Applications/空格听写.app"';
 const html = readFileSync(new URL('../docs/mac-install-copy.html', import.meta.url), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 function guide(writeText, fallback) {
@@ -16,7 +16,7 @@ function guide(writeText, fallback) {
   runInNewContext(script, { document, navigator: { clipboard: { writeText } } });
   return { command, status, click: () => click() };
 }
-test('downloadable guide copies exactly the same single command as the app', async () => {
+test('downloadable guide copies the complete installation command', async () => {
   let copied;
   const page = guide(async text => { copied = text; });
   assert.equal(page.command.value, macInstallCommand);

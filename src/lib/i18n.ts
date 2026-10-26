@@ -2,16 +2,6 @@ export type Lang = 'zh' | 'zh-TW' | 'en' | 'ja' | 'ko';
 
 const messages: Record<Lang, Record<string, string>> = {
   zh: {
-    "space.installHelpTitle": "Mac 首次打开 · 两种处理方法",
-    "space.installHelpHint": "遇到首次打开拦截时，请先确认安装包来自本项目官方 GitHub。任选一种方法成功后即可停止。正常打开无需运行命令。",
-    "space.installHelpSettings": "先尝试：系统设置 → 隐私与安全性 → 向下滚动到安全性 → 仍要打开，按提示确认。",
-    "space.installHelpTerminal": "仍因下载隔离标记受阻时，可复制下方命令，打开终端粘贴并回车。",
-    "space.installCommandLabel": "可复制的 Mac 打开排障命令",
-    "space.installCopied": "已复制 · 再次复制",
-    "space.copyInstallCommand": "复制 sudo 命令",
-    "space.installCommandCopied": "命令已复制。请在终端粘贴运行；密码输入时不显示字符。",
-    "space.installCommandNotice": "仅复制，不会自动运行。命令不修复损坏或扫描病毒；明确提示将损坏电脑时请停止。显示已损坏时先重新下载官方原包。",
-
     "space.recordOwn": "自己录音",
     "space.recordFor": "为 {word} 录音",
     "space.recordTitle": "录制自己的发音",
