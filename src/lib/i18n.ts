@@ -45,7 +45,7 @@ const messages: Record<Lang, Record<string, string>> = {
     "space.ukActual": "英式",
     "space.otherAccent": "其他 / 未注明",
     "space.sourceAuthor": "作者见原始文件页",
-    "space.missingAudioTitle": "部分单词暂时没有可用录音",
+    "space.missingAudioTitle": "未从网上找到",
     "space.missingAudioHint": "程序已依次尝试多个录音来源。下列单词仍未下载成功；可点击单词旁的按钮录制自己的发音，也可取消后重试，或只练习已准备好的单词。原词表不会被删改。",
     "space.startAvailable": "听写已准备好的 {n} 词",
     "space.preparingAudio": "正在下载 / 检查录音 {ready} / {total}",

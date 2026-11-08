@@ -53,10 +53,11 @@ pub fn cached(dir: &Path, text: &str, accent: &str) -> Option<Recording> {
     let path = audio_path(dir, text, accent);
     let meta: Recording =
         serde_json::from_slice(&std::fs::read(path.with_extension("json")).ok()?).ok()?;
-    let bytes = std::fs::read(path).ok()?;
+    let bytes = std::fs::read(&path).ok()?;
     if bytes.len() < 100
         || meta.word != normal(text)
         || meta.digest != format!("{:x}", Sha256::digest(bytes))
+        || !has_audio_peak(&path)
     {
         return None;
     }
@@ -67,6 +68,15 @@ pub(crate) fn decodable_audio(path: &Path) -> bool {
         return false;
     };
     rodio::Decoder::new(BufReader::new(file)).is_ok()
+}
+fn has_audio_peak(path: &Path) -> bool {
+    let Ok(file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let Ok(mut decoder) = rodio::Decoder::new(BufReader::new(file)) else {
+        return false;
+    };
+    decoder.any(|sample| sample.unsigned_abs() >= 64)
 }
 fn plain(html: &str) -> String {
     regex::Regex::new("<[^>]*>")
@@ -316,6 +326,80 @@ fn direct_candidates(word: &str, preferred: &str) -> Vec<Recording> {
     });
     out
 }
+const NO_ONLINE_RECORDING: &str = "该音频没有找到开源出处";
+
+async fn try_candidates(
+    client: &reqwest::Client,
+    dir: &Path,
+    word: &str,
+    preferred: &str,
+    candidates: Vec<Recording>,
+) -> Result<Option<Recording>, String> {
+    for mut recording in candidates {
+        if CANCEL.load(Ordering::SeqCst) {
+            return Err("已取消".into());
+        }
+        let response = client.get(&recording.url).send().await;
+        let mut response = match response.and_then(|response| response.error_for_status()) {
+            Ok(response) => response,
+            Err(_) => continue,
+        };
+        let mut data = Vec::new();
+        let mut interrupted = false;
+        loop {
+            match response.chunk().await {
+                Ok(Some(chunk)) => {
+                    if data.len() + chunk.len() > 5_000_000 {
+                        interrupted = true;
+                        break;
+                    }
+                    data.extend_from_slice(&chunk);
+                }
+                Ok(None) => break,
+                Err(_) => {
+                    interrupted = true;
+                    break;
+                }
+            }
+        }
+        if interrupted {
+            continue;
+        }
+        let target = audio_path(dir, word, preferred);
+        let mut temp = tempfile::Builder::new()
+            .suffix(".mp3")
+            .tempfile_in(target.parent().unwrap())
+            .map_err(|error| error.to_string())?;
+        use std::io::Write;
+        temp.write_all(&data).map_err(|error| error.to_string())?;
+        if data.len() < 100 || !has_audio_peak(temp.path()) {
+            continue;
+        }
+        recording.digest = format!("{:x}", Sha256::digest(&data));
+        temp.persist(&target).map_err(|error| error.to_string())?;
+        let mut meta = tempfile::NamedTempFile::new_in(target.parent().unwrap())
+            .map_err(|error| error.to_string())?;
+        meta.write_all(&serde_json::to_vec_pretty(&recording).unwrap())
+            .map_err(|error| error.to_string())?;
+        meta.persist(target.with_extension("json"))
+            .map_err(|error| error.to_string())?;
+        return Ok(Some(recording));
+    }
+    Ok(None)
+}
+
+async fn require_online_recording(
+    client: &reqwest::Client,
+    dir: &Path,
+    word: &str,
+    preferred: &str,
+    candidates: Vec<Recording>,
+) -> Result<Recording, String> {
+    try_candidates(client, dir, word, preferred, candidates)
+        .await?
+        .ok_or_else(|| NO_ONLINE_RECORDING.into())
+}
+
 async fn download(
     client: &reqwest::Client,
     dir: &Path,
@@ -323,79 +407,15 @@ async fn download(
     preferred: &str,
     choices: Vec<Recording>,
 ) -> Result<Recording, String> {
-    let mut pending = direct_candidates(word, preferred);
-    pending.extend(choices);
-    let mut tried_index = false;
-    let mut last = "没有可用的 MP3 录音".to_string();
-    loop {
-        for mut r in pending {
-            if CANCEL.load(Ordering::SeqCst) {
-                return Err("已取消".into());
-            }
-            let response = client.get(&r.url).send().await;
-            let mut response = match response.and_then(|r| r.error_for_status()) {
-                Ok(r) => r,
-                Err(_) => {
-                    last = "当前网络无法连接可用的录音服务".into();
-                    continue;
-                }
-            };
-            let mut data = Vec::new();
-            let mut interrupted = false;
-            loop {
-                match response.chunk().await {
-                    Ok(Some(chunk)) => {
-                        if data.len() + chunk.len() > 5_000_000 {
-                            last = "录音文件过大".into();
-                            interrupted = true;
-                            break;
-                        }
-                        data.extend_from_slice(&chunk);
-                    }
-                    Ok(None) => break,
-                    Err(_) => {
-                        last = "录音下载中断，请稍后重试".into();
-                        interrupted = true;
-                        break;
-                    }
-                }
-            }
-            if interrupted {
-                continue;
-            }
-            let target = audio_path(dir, word, preferred);
-            let mut temp = tempfile::Builder::new()
-                .suffix(".mp3")
-                .tempfile_in(target.parent().unwrap())
-                .map_err(|e| e.to_string())?;
-            use std::io::Write;
-            temp.write_all(&data).map_err(|e| e.to_string())?;
-            if data.len() < 100 || !decodable_audio(temp.path()) {
-                last = "录音服务没有返回可播放的音频".into();
-                continue;
-            }
-            r.digest = format!("{:x}", Sha256::digest(&data));
-            temp.persist(&target).map_err(|e| e.to_string())?;
-            let mut meta = tempfile::NamedTempFile::new_in(target.parent().unwrap())
-                .map_err(|e| e.to_string())?;
-            meta.write_all(&serde_json::to_vec_pretty(&r).unwrap())
-                .map_err(|e| e.to_string())?;
-            meta.persist(target.with_extension("json"))
-                .map_err(|e| e.to_string())?;
-            return Ok(r);
-        }
-        if tried_index {
-            break;
-        }
-        tried_index = true;
-        pending = lookup_index(client, &normal(word), preferred)
-            .await
-            .unwrap_or_default();
-        if pending.is_empty() {
-            break;
-        }
+    let mut candidates = direct_candidates(word, preferred);
+    candidates.extend(choices);
+    if let Some(recording) = try_candidates(client, dir, word, preferred, candidates).await? {
+        return Ok(recording);
     }
-    Err(last)
+    let candidates = lookup_index(client, &normal(word), preferred)
+        .await
+        .unwrap_or_default();
+    require_online_recording(client, dir, word, preferred, candidates).await
 }
 async fn bounded<T>(
     future: impl std::future::Future<Output = Result<T, String>>,
@@ -508,6 +528,156 @@ pub async fn prepare(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+
+    fn wav(samples: &[i16]) -> Vec<u8> {
+        let data_size = (samples.len() * 2) as u32;
+        let mut bytes = Vec::with_capacity(44 + data_size as usize);
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_size).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&16000u32.to_le_bytes());
+        bytes.extend_from_slice(&32000u32.to_le_bytes());
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&16u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_size.to_le_bytes());
+        for sample in samples {
+            bytes.extend_from_slice(&sample.to_le_bytes());
+        }
+        bytes
+    }
+
+    async fn mock_audio_server(responses: Vec<(u16, Vec<u8>)>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            for (status, body) in responses {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = [0u8; 1024];
+                let _ = stream.read(&mut request).await.unwrap();
+                let reason = if status == 200 { "OK" } else { "Not Found" };
+                let headers = format!(
+                    "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nConnection: close\r\nContent-Type: audio/wav\r\n\r\n",
+                    body.len()
+                );
+                stream.write_all(headers.as_bytes()).await.unwrap();
+                stream.write_all(&body).await.unwrap();
+            }
+        });
+        format!("http://{address}")
+    }
+
+    fn test_recording(word: &str, url: String) -> Recording {
+        Recording {
+            word: normal(word),
+            accent: "en_US".into(),
+            author: "Test".into(),
+            source: "test".into(),
+            license: "test".into(),
+            license_url: String::new(),
+            url,
+            digest: String::new(),
+        }
+    }
+
+    fn cache_audio(dir: &Path, word: &str, audio: &[u8]) {
+        let path = audio_path(dir, word, "en_US");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, audio).unwrap();
+        let mut recording = test_recording(word, String::new());
+        recording.digest = format!("{:x}", Sha256::digest(audio));
+        std::fs::write(
+            path.with_extension("json"),
+            serde_json::to_vec(&recording).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn audio_peak_uses_the_i16_threshold_and_handles_minimum_sample() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, sample, expected) in [
+            ("silence.wav", 0, false),
+            ("below.wav", 63, false),
+            ("negative-below.wav", -63, false),
+            ("threshold.wav", 64, true),
+            ("negative-threshold.wav", -64, true),
+            ("minimum.wav", i16::MIN, true),
+        ] {
+            let path = dir.path().join(name);
+            std::fs::write(&path, wav(&[sample; 256])).unwrap();
+            assert_eq!(has_audio_peak(&path), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn old_silent_online_cache_is_rejected_but_a_peaked_cache_is_reused() {
+        let dir = tempfile::tempdir().unwrap();
+        cache_audio(dir.path(), "apple", &wav(&[0; 256]));
+        assert!(cached(dir.path(), "apple", "en_US").is_none());
+        cache_audio(dir.path(), "apple", &wav(&[64; 256]));
+        assert!(cached(dir.path(), "apple", "en_US").is_some());
+    }
+
+    #[tokio::test]
+    async fn silent_candidate_is_skipped_for_the_next_source() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("recordings-v1")).unwrap();
+        let base = mock_audio_server(vec![
+            (200, wav(&[0; 256])),
+            (200, wav(&[64; 256])),
+        ])
+        .await;
+        let result = try_candidates(
+            &reqwest::Client::new(),
+            dir.path(),
+            "apple",
+            "en_US",
+            vec![
+                test_recording("apple", format!("{base}/silent")),
+                test_recording("apple", format!("{base}/audible")),
+            ],
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(result.url.ends_with("/audible"));
+        assert!(cached(dir.path(), "apple", "en_US").is_some());
+    }
+
+    #[tokio::test]
+    async fn silent_candidate_and_not_found_response_return_exact_missing_message() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("recordings-v1")).unwrap();
+        let base = mock_audio_server(vec![
+            (200, wav(&[0; 256])),
+            (404, b"not found".to_vec()),
+        ])
+        .await;
+        let candidates = vec![
+            test_recording("apple", format!("{base}/silent")),
+            test_recording("apple", format!("{base}/missing")),
+        ];
+        let error = require_online_recording(
+            &reqwest::Client::new(),
+            dir.path(),
+            "apple",
+            "en_US",
+            candidates,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error, "该音频没有找到开源出处");
+    }
+
     #[tokio::test]
     async fn stalled_download_times_out_and_cancel_does_not_wait_for_network() {
         let notify = tokio::sync::Notify::new();
