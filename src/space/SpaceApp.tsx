@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRightIcon, ArrowUpTrayIcon, ArrowDownTrayIcon, BookOpenIcon, CheckIcon, XMarkIcon, SpeakerWaveIcon, AdjustmentsHorizontalIcon, ArrowPathIcon, PlusIcon, DocumentDuplicateIcon, FolderOpenIcon, HomeIcon, PencilSquareIcon, TrashIcon, ExclamationCircleIcon, PauseIcon, MicrophoneIcon } from '@heroicons/react/24/outline';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { ArrowRightIcon, ArrowUpTrayIcon, ArrowDownTrayIcon, BookOpenIcon, CheckIcon, XMarkIcon, SpeakerWaveIcon, AdjustmentsHorizontalIcon, ArrowPathIcon, PlusIcon, DocumentDuplicateIcon, FolderOpenIcon, HomeIcon, PencilSquareIcon, TrashIcon, ExclamationCircleIcon, PauseIcon, MicrophoneIcon, SunIcon, MoonIcon, ComputerDesktopIcon } from '@heroicons/react/24/outline';
+import { AnimatePresence, LazyMotion, MotionConfig, animate, useDragControls, useIsPresent, useMotionValue, useReducedMotion } from 'motion/react';
+import * as m from 'motion/react-m';
 import * as api from '../lib/api';
 import { t } from '../lib/i18n';
 import Select from '../components/Select';
@@ -12,9 +14,116 @@ import type { ThemePreference } from './theme';
 import './space.css';
 
 const initialSpeechSeq = Date.now() * 1000;
+const loadMotionFeatures = () => import('./motionFeatures').then(module => module.default);
 const tr = (key: string, params?: Record<string, string | number>) => t(`space.${key}`, params);
 type Page = 'home' | 'decks' | 'wrong' | 'settings' | 'listen' | 'review' | 'editor';
 const deckTitle = (deck: Deck) => deck.id.startsWith('builtin-') ? tr(`builtin${deck.name}`) : deck.name;
+
+interface RecordingModalProps {
+  word: string;
+  status: 'idle' | 'starting' | 'recording' | 'saving' | 'saved';
+  seconds: number;
+  error: string;
+  onCancel: () => void;
+  onStart: () => void;
+  onFinish: () => void;
+  onPreview: () => void;
+  speaking: boolean;
+}
+
+function RecordingModal({ word, status, seconds, error, onCancel, onStart, onFinish, onPreview, speaking }: RecordingModalProps) {
+  const stageRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLElement>(null);
+  const isPresent = useIsPresent();
+  const dragControls = useDragControls();
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const reduceMotion = useReducedMotion();
+  const [movable, setMovable] = useState(true);
+
+  useEffect(() => {
+    const measure = () => {
+      const stage = stageRef.current?.getBoundingClientRect();
+      const modal = modalRef.current?.getBoundingClientRect();
+      if (!stage || !modal) return;
+      const fits = window.innerWidth >= 850 && window.innerHeight >= 640 && modal.width <= stage.width && modal.height <= stage.height;
+      setMovable(fits);
+      if (!fits) { x.set(0); y.set(0); return; }
+      const dx = modal.left < stage.left ? stage.left - modal.left : modal.right > stage.right ? stage.right - modal.right : 0;
+      const dy = modal.top < stage.top ? stage.top - modal.top : modal.bottom > stage.bottom ? stage.bottom - modal.bottom : 0;
+      if (dx) x.set(x.get() + dx);
+      if (dy) y.set(y.get() + dy);
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    if (stageRef.current) observer?.observe(stageRef.current);
+    if (modalRef.current) observer?.observe(modalRef.current);
+    window.addEventListener('resize', measure);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
+  }, [error, status, word, x, y]);
+
+  useEffect(() => {
+    if (!isPresent) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && status !== 'saving') { event.preventDefault(); onCancel(); return; }
+      if (event.key !== 'Tab') return;
+      const dialog = modalRef.current;
+      if (!dialog) return;
+      const items = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')].filter(node => !node.hidden && node.getAttribute('aria-hidden') !== 'true');
+      if (!items.length) { event.preventDefault(); dialog.focus(); return; }
+      const first = items[0], last = items[items.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, [isPresent, onCancel, status]);
+
+  const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (movable && event.button === 0) dragControls.start(event);
+  };
+  const moveWithKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!movable) return;
+    const stage = stageRef.current?.getBoundingClientRect();
+    const modal = modalRef.current?.getBoundingClientRect();
+    if (!stage || !modal) return;
+    const step = event.shiftKey ? 32 : 12;
+    const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0;
+    const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0;
+    if (!dx && !dy) return;
+    event.preventDefault();
+    const boundedX = Math.max(stage.left - modal.left, Math.min(dx, stage.right - modal.right));
+    const boundedY = Math.max(stage.top - modal.top, Math.min(dy, stage.bottom - modal.bottom));
+    x.set(x.get() + boundedX);
+    y.set(y.get() + boundedY);
+  };
+  const recenter = () => {
+    const duration = reduceMotion ? 0 : 0.18;
+    animate(x, 0, { duration, ease: 'easeOut' });
+    animate(y, 0, { duration, ease: 'easeOut' });
+  };
+
+  return <m.div className="modal-shade recorder-shade" aria-hidden={!isPresent} inert={!isPresent} style={{ pointerEvents: isPresent ? 'auto' : 'none' }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.16 }}>
+    <div className="modal-stage" ref={stageRef}>
+      <m.section ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="record-title" className={`confirm-modal recorder-modal${movable ? ' can-drag' : ''}`} tabIndex={-1} drag={movable} dragListener={false} dragControls={dragControls} dragConstraints={stageRef} dragMomentum={false} dragElastic={0} style={{ x, y }}>
+        <m.div className="recorder-content" initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : 0.18 }}>
+          <div className="recorder-titlebar">
+            <div className="recorder-drag-handle" role="group" aria-label={tr('recordMove')} aria-describedby="record-drag-hint" tabIndex={movable ? 0 : -1} onPointerDown={startDrag} onKeyDown={moveWithKey}>
+              <h2 id="record-title">{tr('recordTitle')}</h2><span id="record-drag-hint" className="drag-hint">{tr(movable ? 'recordMoveHint' : 'recordMoveUnavailable')}</span>
+            </div>
+            {movable && <button className="recenter-button" type="button" aria-label={tr('recordCenter')} title={tr('recordCenter')} onClick={recenter}><ArrowPathIcon /></button>}
+          </div>
+          <div className="recorder-body">
+            <p className="record-word" lang="en">{word}</p><p>{tr('recordHint')}</p>
+            <div className={`mic-status ${status === 'recording' ? 'is-recording' : ''}`} role="status"><MicrophoneIcon /><span>{tr(`recordStatus${status}`, { n: seconds })}</span></div>
+            {error && <p className="import-note" role="alert">{error}</p>}
+            <div className="button-group"><button className="secondary" disabled={status === 'saving'} onClick={onCancel}>{tr(status === 'saved' ? 'recordDone' : 'cancel')}</button>{status === 'saved' && <button className="secondary" onClick={onPreview}><SpeakerWaveIcon />{tr(speaking ? 'stop' : 'recordPreview')}</button>}{status === 'recording' ? <button className="primary" onClick={onFinish}><CheckIcon />{tr('recordSave')}</button> : <button className="primary" disabled={status === 'starting' || status === 'saving'} autoFocus onClick={onStart}><MicrophoneIcon />{tr(status === 'saved' ? 'recordAgain' : 'recordStart')}</button>}</div>
+          </div>
+        </m.div>
+      </m.section>
+    </div>
+  </m.div>;
+}
 export default function SpaceApp() {
   const [theme, setTheme] = useState<ThemePreference>(readTheme);
   useEffect(() => watchTheme(theme), [theme]);
@@ -23,7 +132,7 @@ export default function SpaceApp() {
     setTheme(value);
     try { localStorage.setItem(themeStorageKey, value); } catch { /* Keep the choice for this window. */ }
   };
-  const themeChoices = (location: string) => <div className="theme-choices" role="group" aria-label={tr('themeTitle')} data-location={location}>{(['light', 'dark', 'system'] as const).map(value => <button type="button" key={value} aria-pressed={theme === value} onClick={() => chooseTheme(value)}><span aria-hidden="true">{value === 'light' ? '☀' : value === 'dark' ? '☾' : '◐'}</span>{tr(`theme${value}`)}</button>)}</div>;
+  const themeChoices = (location: string) => <div className="theme-choices" role="group" aria-label={tr('themeTitle')} data-location={location}>{(['light', 'dark', 'system'] as const).map(value => <button type="button" key={value} aria-pressed={theme === value} onClick={() => chooseTheme(value)}><span className="theme-icon" aria-hidden="true">{value === 'light' ? <SunIcon /> : value === 'dark' ? <MoonIcon /> : <ComputerDesktopIcon />}</span>{tr(`theme${value}`)}</button>)}</div>;
   const [update, setUpdate] = useState<api.SpaceUpdate | null>(null);
   const [updating, setUpdating] = useState(false);
   const [updateError, setUpdateError] = useState('');
@@ -52,6 +161,8 @@ export default function SpaceApp() {
   const [decks, setDecks] = useState<Deck[]>([]);
   const [pendingAudio, setPendingAudio] = useState<{ session: Session; report: api.SpaceAudioReport } | null>(null);
   const [recordWord, setRecordWord] = useState<string | null>(null);
+  const [recorderExitLock, setRecorderExitLock] = useState(false);
+  const recorderReturnFocus = useRef<HTMLElement | null>(null);
   const [micStatus, setMicStatus] = useState<'idle' | 'starting' | 'recording' | 'saving' | 'saved'>('idle');
   const [micError, setMicError] = useState('');
   const [micSeconds, setMicSeconds] = useState(0);
@@ -278,13 +389,18 @@ export default function SpaceApp() {
   const reviewWords = session?.words.filter((_, i) => session.marks[i] === false) || [];
   const duplicates = editor ? duplicateIds(editor.words) : new Set<string>();
   const importPrompt = importHelp ? buildImportPrompt(importHelp.folder, promptAssistant) : '';
-  const openRecorder = (word: string) => { stop(); setRecordWord(word); setMicStatus('idle'); setMicError(''); setMicSeconds(0); };
+  const openRecorder = (word: string, trigger?: HTMLElement | null) => { recorderReturnFocus.current = trigger || (document.activeElement instanceof HTMLElement ? document.activeElement : null); setRecorderExitLock(false); stop(); setRecordWord(word); setMicStatus('idle'); setMicError(''); setMicSeconds(0); };
   const cancelRecorder = useCallback(() => {
     ++micGeneration.current;
     stop();
     void api.spaceCancelRecording().catch(report);
+    setRecorderExitLock(true);
     setRecordWord(null); setMicStatus('idle'); setMicError('');
   }, [report, stop]);
+  const restoreRecorderFocus = () => {
+    setRecorderExitLock(false);
+    requestAnimationFrame(() => { recorderReturnFocus.current?.focus(); recorderReturnFocus.current = null; });
+  };
   const finishRecording = useCallback(async () => {
     if (micFinishing.current) return;
     micFinishing.current = true;
@@ -337,46 +453,46 @@ export default function SpaceApp() {
 
   if (!data) return <div className="boot"><span className="brand-mark">⌴</span><h1>{tr('name')}</h1><p>{tr(loadError ? 'loadFailed' : 'loading')}</p>{loadError && <button className="primary" onClick={() => setReload(v => v + 1)}>{tr('retry')}</button>}</div>;
   const nav = [
-    { id: 'home' as Page, label: tr('home'), icon: HomeIcon },
+    { id: 'home' as Page, label: tr('dictation'), icon: HomeIcon },
     { id: 'decks' as Page, label: tr('decks'), icon: BookOpenIcon },
     { id: 'wrong' as Page, label: tr('wrong'), icon: PencilSquareIcon },
-    { id: 'settings' as Page, label: tr('settings'), icon: AdjustmentsHorizontalIcon },
   ];
-  return <div className="space-app">
-    <aside className="sidebar">
-      <div className="brand"><span className="brand-mark">⌴</span><div><strong>{tr('name')}</strong><span>SPACE DICTATION</span></div></div>
-      <nav>{nav.map(n => <button disabled={busy} key={n.id} className={(page === n.id || n.id === 'home' && ['listen', 'review'].includes(page) || n.id === 'decks' && page === 'editor') ? 'nav-item active' : 'nav-item'} onClick={() => { setDeckDetail(null); go(n.id); }}><n.icon />{n.label}{n.id === 'wrong' && wrong.length > 0 && <span className="nav-count">{wrong.length}</span>}</button>)}</nav>
-      <div className="sidebar-bottom"><p className="theme-label">{tr('themeTitle')}</p>{themeChoices('sidebar')}<div className="sidebar-note"><span className="tiny-dot" />{tr('local')}<small>{tr('based')}</small></div></div>
-    </aside>
+  const navPage = page === 'listen' || page === 'review' ? 'home' : page === 'editor' ? 'decks' : page;
+  return <LazyMotion features={loadMotionFeatures} strict><MotionConfig reducedMotion="user"><div className="space-app">
     <main>
-      <header className="topbar"><span>{page === 'listen' ? tr('listening') : page === 'review' ? tr('review') : page === 'editor' ? tr('editorTitle') : nav.find(n => n.id === page)?.label}</span><span className={`save-state ${saveStatus === 'saveFailed' ? 'failed' : ''}`}><span className="tiny-dot" />{tr(saveStatus)}{saveStatus === 'saveFailed' && <button onClick={() => commit(latest.current)}>{tr('retrySave')}</button>}</span></header>
+      <header className={`topbar${page === 'listen' ? ' is-listening' : ''}`}>
+        <div className="brand"><span className="brand-mark" aria-hidden="true">␣</span><strong>{tr('name')}</strong></div>
+        {page !== 'listen' && <nav className="top-nav" aria-label={tr('name')}>{nav.map(n => <button disabled={busy} key={n.id} aria-current={navPage === n.id ? 'page' : undefined} className={navPage === n.id ? 'nav-item active' : 'nav-item'} onClick={() => { setDeckDetail(null); go(n.id); }}><n.icon />{n.label}{n.id === 'wrong' && wrong.length > 0 && <span className="nav-count">{wrong.length}</span>}</button>)}</nav>}
+        <div className="header-actions">{page !== 'listen' && <button className={`settings-link${page === 'settings' ? ' active' : ''}`} aria-current={page === 'settings' ? 'page' : undefined} onClick={() => go('settings')}><AdjustmentsHorizontalIcon /><span>{tr('settings')}</span></button>}<span className={`save-state ${saveStatus === 'saveFailed' ? 'failed' : ''}`} role="status"><span className="tiny-dot" />{tr(saveStatus)}{saveStatus === 'saveFailed' && <button onClick={() => commit(latest.current)}>{tr('retrySave')}</button>}</span></div>
+      </header>
       {error && <div className="alert" role="alert"><ExclamationCircleIcon />{error}<button aria-label={tr('cancel')} onClick={() => setError('')}><XMarkIcon /></button></div>}
       {notice && <div className="notice" role="status">{notice}</div>}
       <div className="content" key={page}>
       {page === 'home' && <>
-        <section className="hero"><div><p className="eyebrow">{tr('eyebrow')}</p><h1>{tr('hero')}</h1><span className="hero-sticker">{tr('pressStart')} ↗</span><p className="intro">{tr('intro')}</p><div className="step-line"><span>01 {tr('step1')}</span><i>—</i><span>02 {tr('step2')}</span><i>—</i><span>03 {tr('step3')}</span></div></div><div className="space-art" aria-hidden="true"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="keycap">space<span>空 格</span></div><span className="art-caption">ONE WORD AT A TIME</span></div></section>
-        {active && <section className="resume-panel"><div><p className="eyebrow">{tr('pending')}</p><h2>{active.name}</h2><p>{tr('progress', { n: active.index + 1, total: active.words.length })} · {tr('confirmExit')}</p></div><button className="primary" disabled={busy} onClick={() => resume()}>{tr(active.phase === 'listen' ? 'resume' : 'reviewResume')}<ArrowRightIcon /></button></section>}<section className="setup"><div className="section-heading"><h2>{tr('setup')}</h2><span>{tr('noAuto')}</span></div><div className="setup-fields"><Select label={tr('source')} options={decks.map(d => ({ value: d.id, label: `${deckTitle(d)} · ${d.card_count}` }))} value={selected} onChange={selectDeck} /><label className="field">{tr('count')}<input aria-label={tr('count')} type="number" min="1" max="1000" value={data.settings.count} onChange={e => setSetting({ count: Math.min(1000, Math.max(1, Math.trunc(Number(e.target.value) || 1))) })} /></label><Select label={tr('order')} value={data.settings.shuffle ? 'shuffle' : 'sequential'} onChange={v => setSetting({ shuffle: v === 'shuffle' })} options={[{ value: 'shuffle', label: tr('shuffle') }, { value: 'sequential', label: tr('sequential') }]} /><button className="primary" disabled={busy || !decks.length} onClick={start}>{tr('start')}<ArrowRightIcon /></button></div><p className="muted small">{tr('countHint')} {tr('audioHint')} {tr('switchSessionHint')}</p></section>
+        <section className="home-heading"><div><p className="eyebrow">{tr('eyebrow')}</p><h1>{tr('home')}</h1><p>{tr('intro')}</p></div><div className="space-hint"><kbd>Space</kbd><span>{tr('noAuto')}</span></div></section>
+        {active && <section className="resume-panel"><div><p className="eyebrow">{tr('pending')}</p><h2>{active.name}</h2><p>{tr('progress', { n: active.index + 1, total: active.words.length })} · {tr('confirmExit')}</p></div><button className="secondary" disabled={busy} onClick={() => resume()}>{tr(active.phase === 'listen' ? 'resume' : 'reviewResume')}<ArrowRightIcon /></button></section>}
+        <section className="setup"><div className="section-heading"><h2>{tr('setup')}</h2></div><div className="setup-fields"><Select label={tr('source')} options={decks.map(d => ({ value: d.id, label: `${deckTitle(d)} · ${d.card_count}` }))} value={selected} onChange={selectDeck} /><label className="field">{tr('count')}<input aria-label={tr('count')} type="number" min="1" max="1000" value={data.settings.count} onChange={e => setSetting({ count: Math.min(1000, Math.max(1, Math.trunc(Number(e.target.value) || 1))) })} /></label><Select label={tr('order')} value={data.settings.shuffle ? 'shuffle' : 'sequential'} onChange={v => setSetting({ shuffle: v === 'shuffle' })} options={[{ value: 'shuffle', label: tr('shuffle') }, { value: 'sequential', label: tr('sequential') }]} /><button className="primary" disabled={busy || !decks.length} onClick={start}>{tr('start')}<ArrowRightIcon /></button></div><p className="muted small setup-hint">{tr('countHint')} {tr('audioHint')}</p></section>
         <section className="history"><div className="section-heading"><h2>{tr('recent')}</h2><span>{tr('doneCount', { n: data.sessions.filter(s => s.phase === 'done').length })}</span></div>{data.sessions.length ? [...data.sessions].reverse().slice(0, 8).map(s => <button className="history-row" key={s.id} disabled={busy} onClick={() => { if (s.phase === 'listen') resume(s); else { setViewSession(s.id); go('review'); } }}><span className="history-icon"><BookOpenIcon /></span><span><strong>{s.name}</strong><small>{new Date(s.created).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} · {tr('words', { n: s.words.length })}</small></span><span className="history-result">{accuracy(s) === null ? tr('unmarked', { n: s.marks.filter(m => m === null).length }) : tr('result', { n: accuracy(s)! })}</span><ArrowRightIcon /></button>) : <div className="empty-history"><p>{tr('noHistory')}</p><small>{tr('historyHint')}</small></div>}</section>
       </>}
       {page === 'listen' && session && <section className="listen-panel" tabIndex={-1}>
         <div className="listen-header"><span>{session.name}</span><button className="text-button" onClick={() => go('home')}>{tr('exit')} ↗</button></div>
-        <div className="progress-track"><div style={{ transform: `scaleX(${(session.index + 1) / session.words.length})` }} /></div>
-        <div className="listen-center"><p className="eyebrow">{tr('noInput')}</p><div className={`sound-symbol ${speech.playing ? 'speaking' : ''}`} aria-hidden="true">{[0, 1, 2, 3, 4].map(n => <i key={n} />)}</div><h1>{session.index < 0 ? '—' : String(session.index + 1).padStart(2, '0')}</h1><p className="listen-total">/ {String(session.words.length).padStart(2, '0')}</p><h2>{session.index < 0 ? tr('ready') : tr('wordNumber', { n: session.index + 1 })}</h2><p className="listen-status" aria-live="polite">{speech.playing ? tr('playing') : session.index < 0 ? tr('pressStart') : session.index === session.words.length - 1 ? tr('last') : tr('waiting')}</p></div>
+        <div className="progress-track" role="progressbar" aria-label={tr('progress', { n: Math.max(0, session.index + 1), total: session.words.length })} aria-valuemin={0} aria-valuemax={session.words.length} aria-valuenow={Math.max(0, session.index + 1)}><div style={{ transform: `scaleX(${Math.max(0, session.index + 1) / session.words.length})` }} /></div>
+        <div className="listen-center"><p className="listen-status-line"><span className={`status-indicator${speech.playing ? ' is-playing' : ''}`} aria-hidden="true" />{speech.playing ? tr('playing') : tr('noInput')}</p><div className="listen-count"><strong>{session.index < 0 ? '—' : String(session.index + 1).padStart(2, '0')}</strong><span>/ {String(session.words.length).padStart(2, '0')}</span></div><h2>{session.index < 0 ? tr('ready') : tr('wordNumber', { n: session.index + 1 })}</h2><p className="listen-status" aria-live="polite">{speech.playing ? tr('playing') : session.index < 0 ? tr('pressStart') : session.index === session.words.length - 1 ? tr('last') : tr('waiting')}</p></div>
         <div className="listen-actions"><button className="secondary" disabled={session.index < 0} onClick={e => { e.currentTarget.blur(); repeat(); }}><SpeakerWaveIcon />{tr('repeat')}<kbd>R</kbd></button><button className="primary space-next" onClick={e => { e.currentTarget.blur(); next(); }}><span>{session.index < 0 ? tr('pressStart') : session.index === session.words.length - 1 ? tr('review') : tr('next')}</span><kbd>{tr('space')}</kbd><ArrowRightIcon /></button></div><p className="listen-footer">{tr('hidden')} {tr('audioReady')}</p>
       </section>}
       {page === 'review' && session && <>
         <div className="page-heading"><p className="eyebrow">{session.name}</p><h1>{tr(session.phase === 'done' ? 'finished' : 'review')}</h1><p>{tr(session.phase === 'done' ? 'finishHint' : 'reviewHint')}</p></div>
         <div className="review-summary"><strong>{accuracy(session) === null ? tr('reviewed', { n: session.marks.filter(m => m !== null).length, total: session.words.length }) : tr('result', { n: accuracy(session)! })}</strong><span>{tr('reviewOnlyWrong')} {reviewWords.length}</span></div>
-        <div className="word-table review-table">{session.words.map((w, i) => <div className="word-row" key={w.id}><span className="row-number">{String(i + 1).padStart(2, '0')}</span><div className="word-content"><button className="word-play" disabled={busy} aria-label={tr('playWord', { word: w.front })} onClick={() => replay(w)}><strong lang="en">{w.front}</strong><SpeakerWaveIcon /></button><p>{w.back || tr('noDefinition')}</p><button className="record-link" aria-label={tr('recordFor', { word: w.front })} onClick={() => openRecorder(w.front)}><MicrophoneIcon />{tr('recordOwn')}</button></div><div className="mark-actions"><button className={`mark correct ${session.marks[i] === true ? 'selected' : ''}`} disabled={session.phase === 'done'} aria-pressed={session.marks[i] === true} aria-label={`${tr('correct')} ${w.front}`} onClick={() => mark(i, true)}><CheckIcon />{tr('correct')}</button><button className={`mark incorrect ${session.marks[i] === false ? 'selected' : ''}`} disabled={session.phase === 'done'} aria-pressed={session.marks[i] === false} aria-label={`${tr('incorrect')} ${w.front}`} onClick={() => mark(i, false)}><XMarkIcon />{tr('incorrect')}</button>{session.marks[i] === null && <small>{tr('pendingMark')}</small>}</div></div>)}</div>
+        <div className="word-table review-table">{session.words.map((w, i) => <div className="word-row" key={w.id}><span className="row-number">{String(i + 1).padStart(2, '0')}</span><div className="word-content"><button className="word-play" disabled={busy} aria-label={tr('playWord', { word: w.front })} onClick={() => replay(w)}><strong lang="en">{w.front}</strong><SpeakerWaveIcon /></button><p>{w.back || tr('noDefinition')}</p><button className="record-link" aria-label={tr('recordFor', { word: w.front })} onClick={e => openRecorder(w.front, e.currentTarget)}><MicrophoneIcon />{tr('recordOwn')}</button></div><div className="mark-actions"><button className={`mark correct ${session.marks[i] === true ? 'selected' : ''}`} disabled={session.phase === 'done'} aria-pressed={session.marks[i] === true} aria-label={`${tr('correct')} ${w.front}`} onClick={() => mark(i, true)}><CheckIcon />{tr('correct')}</button><button className={`mark incorrect ${session.marks[i] === false ? 'selected' : ''}`} disabled={session.phase === 'done'} aria-pressed={session.marks[i] === false} aria-label={`${tr('incorrect')} ${w.front}`} onClick={() => mark(i, false)}><XMarkIcon />{tr('incorrect')}</button>{session.marks[i] === null && <small>{tr('pendingMark')}</small>}</div></div>)}</div>
         <div className="bottom-actions"><button className="secondary" onClick={() => go('home')}>{tr('back')}</button>{session.phase !== 'done' ? <button className="primary" disabled={accuracy(session) === null} title={accuracy(session) === null ? tr('finishRequired') : undefined} onClick={finish}>{tr('finish')}<CheckIcon /></button> : reviewWords.length > 0 && <button className="primary" disabled={busy} onClick={() => void run(async () => { await startWords(tr('reviewOnlyWrong'), reviewWords); })}>{tr('wrongPractice')}<ArrowRightIcon /></button>}</div>
       </>}
       {page === 'decks' && <>
-        <div className="page-heading heading-actions"><div><p className="eyebrow">YOUR WORDS, YOUR WORLD</p><h1>{tr('decks')}</h1><p>{tr('noPersonalHint')}</p></div><div className="button-group"><button className="secondary" disabled={busy} onClick={importFile}><ArrowUpTrayIcon />{tr('import')}</button><button className="primary" onClick={openEditor}><PlusIcon />{tr('create')}</button></div></div>
-        {!deckDetail && importHelp && <section className="import-helper"><div className="helper-heading"><div><p className="eyebrow">{tr('helperEyebrow')}</p><h2>{tr('helperTitle')}</h2></div><div className="button-group"><button className="primary" disabled={busy || !importPrompt} onClick={() => copyImportPrompt('doubao')}><DocumentDuplicateIcon />{tr('copyDoubaoPrompt')}</button><button className="secondary" disabled={busy || !importPrompt} onClick={() => copyImportPrompt('chatgpt')}><DocumentDuplicateIcon />{tr('copyChatGPTPrompt')}</button></div></div><p>{tr('helperHint')}</p><p className="inbox-path">{tr('promptPath')}：{importHelp.folder}</p><p className="small muted">{tr('promptPreviewFor', { assistant: promptAssistant === 'doubao' ? '豆包' : 'ChatGPT' })}</p><textarea className="prompt-preview" readOnly value={importPrompt} aria-label={tr('promptPreview')} /><div className="button-group"><button className="secondary" onClick={() => void run(api.spaceOpenInbox)}><FolderOpenIcon />{tr('openInbox')}</button><button className="text-button" onClick={() => void run(async () => setImportHelp(await api.spaceImportHelp()))}><ArrowPathIcon />{tr('refreshInbox')}</button></div><div className="inbox-list">{importHelp.files.length ? importHelp.files.map(file => <div className="inbox-row" key={file.path}><span>{file.name}</span><button className="text-button" disabled={busy} onClick={() => previewInbox(file)}>{tr('inboxPreview')} →</button></div>) : <p className="muted small">{tr('inboxEmpty')}</p>}</div></section>}
+        <div className="page-heading heading-actions"><div><p className="eyebrow">{tr('decks')}</p><h1>{tr('decks')}</h1><p>{tr('noPersonalHint')}</p></div><div className="button-group"><button className="secondary" disabled={busy} onClick={importFile}><ArrowUpTrayIcon />{tr('import')}</button><button className="primary" onClick={openEditor}><PlusIcon />{tr('create')}</button></div></div>
+        {!deckDetail && importHelp && <section className="import-helper"><details><summary><span className="import-summary"><span className="eyebrow">{tr('helperEyebrow')}</span><strong>{tr('helperTitle')}</strong><small>{tr('helperHint')}</small></span></summary><div className="import-helper-content"><div className="helper-heading"><div><p className="eyebrow">{tr('helperEyebrow')}</p><h2>{tr('helperTitle')}</h2></div><div className="button-group"><button className="primary" disabled={busy || !importPrompt} onClick={() => copyImportPrompt('doubao')}><DocumentDuplicateIcon />{tr('copyDoubaoPrompt')}</button><button className="secondary" disabled={busy || !importPrompt} onClick={() => copyImportPrompt('chatgpt')}><DocumentDuplicateIcon />{tr('copyChatGPTPrompt')}</button></div></div><p>{tr('helperHint')}</p><p className="inbox-path">{tr('promptPath')}：{importHelp.folder}</p><p className="small muted">{tr('promptPreviewFor', { assistant: promptAssistant === 'doubao' ? '豆包' : 'ChatGPT' })}</p><textarea className="prompt-preview" readOnly value={importPrompt} aria-label={tr('promptPreview')} /><div className="button-group"><button className="secondary" onClick={() => void run(api.spaceOpenInbox)}><FolderOpenIcon />{tr('openInbox')}</button><button className="text-button" onClick={() => void run(async () => setImportHelp(await api.spaceImportHelp()))}><ArrowPathIcon />{tr('refreshInbox')}</button></div><div className="inbox-list">{importHelp.files.length ? importHelp.files.map(file => <div className="inbox-row" key={file.path}><span>{file.name}</span><button className="text-button" disabled={busy} onClick={() => previewInbox(file)}>{tr('inboxPreview')} →</button></div>) : <p className="muted small">{tr('inboxEmpty')}</p>}</div></div></details></section>}
         {deckDetail ? <section><div className="deck-detail-toolbar"><Select label={tr('switchDeck')} value={deckDetail.id} onChange={id => void run(async () => { const d = decks.find(x => x.id === id); if (d) setDeckDetail({ id: d.id, name: deckTitle(d), words: await api.spaceWords(d.id) }); })} options={decks.map(d => ({ value: d.id, label: `${deckTitle(d)} · ${d.card_count}` }))} /><button className="primary" disabled={busy || !deckDetail.words.length} onClick={() => { selectDeck(deckDetail.id); go('home'); }}>{tr('useDeck')}<ArrowRightIcon /></button></div><div className="section-heading"><div><h2>{deckDetail.name}</h2><p className="muted small">{tr('deckPreviewCount', { total: deckDetail.words.length, shown: Math.min(300, deckDetail.words.length) })}</p></div><div className="button-group"><button className="secondary" onClick={() => setDeckDetail(null)}>{tr('cancel')}</button>{!deckDetail.id.startsWith('builtin-') && <><button className="secondary" onClick={() => { setEditor(structuredClone(deckDetail)); setPreview(true); setBlanks(0); go('editor'); }}>{tr('edit')}</button><button className="danger" onClick={() => setConfirm({ kind: 'delete', value: deckDetail.id, name: deckDetail.name })}>{tr('deleteDeck')}</button></>}</div></div><div className="word-table">{deckDetail.words.slice(0, 300).map((w, i) => <div className="word-row" key={w.id}><span className="row-number">{i + 1}</span><div className="word-content"><strong lang="en">{w.front}</strong><p>{w.back || tr('noDefinition')}</p></div></div>)}</div></section> : <>{['personal', 'builtin'].map(kind => { const list = decks.filter(d => kind === 'builtin' ? d.id.startsWith('builtin-') : !d.id.startsWith('builtin-')); return <section className="deck-section" key={kind}><div className="section-heading"><h2>{tr(kind)}</h2><span>{list.length}</span></div><div className="deck-grid">{list.map((d, i) => <button className={`deck-tile tone-${i % 3} ${selected === d.id ? 'selected' : ''}`} key={d.id} onClick={() => void run(async () => setDeckDetail({ id: d.id, name: deckTitle(d), words: await api.spaceWords(d.id) }))}><BookOpenIcon /><span className="deck-label">{kind === 'builtin' ? d.name : tr('personal')}</span><h3>{deckTitle(d)}</h3><span>{tr('words', { n: d.card_count })}</span><ArrowRightIcon className="tile-arrow" /></button>)}</div>{!list.length && <div className="empty-history"><p>{tr('noPersonal')}</p><button className="text-button" onClick={openEditor}>{tr('paste')} →</button></div>}</section>; })}</>}
       </>}
       {page === 'editor' && editor && <>
-        <div className="page-heading"><p className="eyebrow">MAKE IT YOURS</p><h1>{tr(preview ? 'previewTitle' : 'create')}</h1><p>{tr(preview ? 'previewHint' : 'noPersonalHint')}</p></div>
+        <div className="page-heading"><p className="eyebrow">{tr('decks')}</p><h1>{tr(preview ? 'previewTitle' : 'create')}</h1><p>{tr(preview ? 'previewHint' : 'noPersonalHint')}</p></div>
         <label className="field name-field">{tr('deckName')}<input aria-label={tr('deckName')} maxLength={200} placeholder={tr('namePlaceholder')} value={editor.name} onChange={e => setEditor({ ...editor, name: e.target.value })} /></label>
         {!preview ? <><Select label={tr('format')} value={format} onChange={v => setFormat(v as 'txt' | 'csv')} options={[{ value: 'txt', label: tr('plain') }, { value: 'csv', label: tr('csv') }]} /><textarea aria-label={tr('paste')} className="paste-area" value={raw} placeholder={tr('pastePlaceholder')} onChange={e => setRaw(e.target.value)} /><div className="bottom-actions"><button className="secondary" onClick={() => go('decks')}>{tr('cancel')}</button><button className="primary" onClick={previewImport}>{tr('preview')}<ArrowRightIcon /></button></div></> : <>
           {blanks > 0 && <p className="import-note">{tr('blankWarning', { n: blanks })}</p>}{duplicates.size > 0 && <p className="import-note">{tr('duplicateWarning', { n: duplicates.size })}</p>}
@@ -385,22 +501,22 @@ export default function SpaceApp() {
         </>}
       </>}
       {page === 'wrong' && <>
-        <div className="page-heading heading-actions"><div><p className="eyebrow">A LITTLE MORE PRACTICE</p><h1>{tr('wrongTitle')}</h1><p>{tr('wrongHint')}</p></div>{wrong.length > 0 && <button className="primary" disabled={busy} onClick={() => void run(async () => { await startWords(tr('wrong'), wrong); })}>{tr('wrongPractice')}<ArrowRightIcon /></button>}</div>
-        {wrong.length ? <div className="word-table">{wrong.map((w, i) => <div className="word-row" key={w.front}><span className="row-number">{i + 1}</span><div className="word-content"><strong lang="en">{w.front}</strong><p>{w.back || tr('noDefinition')}</p></div></div>)}</div> : <div className="empty-state"><CheckIcon /><h2>{tr('noWrong')}</h2><p>{tr('noWrongHint')}</p></div>}
+        <div className="page-heading heading-actions"><div><p className="eyebrow">{tr('wrong')}</p><h1>{tr('wrongTitle')}</h1><p>{tr('wrongHint')}</p></div>{wrong.length > 0 && <button className="primary" disabled={busy} onClick={() => void run(async () => { await startWords(tr('wrong'), wrong); })}>{tr('wrongPractice')}<ArrowRightIcon /></button>}</div>
+        {wrong.length ? <div className="word-table">{wrong.map((w, i) => <div className="word-row" key={w.front}><span className="row-number">{i + 1}</span><div className="word-content"><button className="word-play" disabled={busy} aria-label={tr('playWord', { word: w.front })} onClick={() => replay({ id: w.front, front: w.front, back: w.back })}><strong lang="en">{w.front}</strong><SpeakerWaveIcon /></button><p>{w.back || tr('noDefinition')}</p></div></div>)}</div> : <div className="empty-state"><CheckIcon /><h2>{tr('noWrong')}</h2><p>{tr('noWrongHint')}</p></div>}
       </>}
       {page === 'settings' && <>
-        <div className="page-heading"><p className="eyebrow">JUST THE WAY YOU LIKE IT</p><h1>{tr('settings')}</h1><p>{tr('language')}</p></div>
+        <div className="page-heading"><p className="eyebrow">{tr('settings')}</p><h1>{tr('settings')}</h1><p>{tr('settingsIntro')}</p></div>
         <section className="settings-section appearance-section"><h2>{tr('themeTitle')}</h2><p className="muted small">{tr('themeHint')}</p>{themeChoices('settings')}</section>
         <section className="settings-section"><h2>{tr('voiceTitle')}</h2><p>{tr('recordingHint')}</p><div className="settings-grid"><Select label={tr('accent')} value={data.settings.accent} onChange={accent => { stop(); setSetting({ accent }); }} options={[{ value: 'en_US', label: tr('us') }, { value: 'en_GB', label: tr('uk') }]} /><label className="field">{tr('rate')}<input aria-label={tr('rate')} type="range" min="80" max="300" step="5" value={data.settings.rate} onChange={e => setSetting({ rate: Number(e.target.value) })} /><span className="small muted">{tr('rateHint', { n: (data.settings.rate / 175).toFixed(2) })}</span></label></div><button className="secondary" disabled={busy} onClick={() => { if (speech.playing) stop(); else replay({ id: 'test', front: 'apple', back: '' }); }}>{speech.playing ? <PauseIcon /> : <SpeakerWaveIcon />}{tr(speech.playing ? 'stop' : 'testVoice')}</button></section>
-        <p className="muted small">{tr('cacheHint')}</p><section className="settings-section backup-section"><h2>{tr('backupTitle')}</h2><p>{tr('backupHint')}</p><div className="button-group"><button className="primary" disabled={busy} onClick={() => void run(async () => { if (await api.spaceExport(latest.current)) setNotice(tr('exported')); })}><ArrowDownTrayIcon />{tr('export')}</button><button className="secondary" disabled={busy} onClick={() => void run(async () => { const path = await api.spaceChooseBackup(); if (path) setConfirm({ kind: 'restore', value: path, name: path.split('/').pop() || path }); })}><ArrowPathIcon />{tr('restore')}</button></div></section>
+        <p className="muted small">{tr('cacheHint')}</p><section className="settings-section backup-section"><h2>{tr('backupTitle')}</h2><p>{tr('backupHint')}</p><div className="button-group"><button className="primary" disabled={busy} onClick={() => void run(async () => { if (await api.spaceExport(latest.current)) setNotice(tr('exported')); })}><ArrowDownTrayIcon />{tr('export')}</button><button className="secondary" disabled={busy} onClick={() => void run(async () => { const path = await api.spaceChooseBackup(); if (path) setConfirm({ kind: 'restore', value: path, name: path.split('/').pop() || path }); })}><ArrowPathIcon />{tr('restore')}</button></div></section><section className="settings-section about-section"><h2>{tr('aboutTitle')}</h2><p>{tr('tagline')}</p><p>{tr('local')}</p><p>{tr('based')}</p></section>
       </>}
-      {recording && ['review', 'settings'].includes(page) && <section className="recording-source"><strong>{tr('recordingSource', { word: recording.word })}</strong><p>{tr('actualAccent')}：{tr(recording.accent === 'personal' ? 'recordPersonal' : recording.accent === 'en_US' ? 'usActual' : recording.accent === 'en_GB' ? 'ukActual' : 'otherAccent')} · {recording.author || tr('sourceAuthor')} · {recording.license}</p><p>{recording.source}</p><p>{recording.license_url}</p>{recording.accent === 'personal' && <button className="secondary" onClick={() => openRecorder(recording.word)}><MicrophoneIcon />{tr('recordAgain')}</button>}</section>}
+      {recording && ['review', 'settings'].includes(page) && <section className="recording-source"><strong>{tr('recordingSource', { word: recording.word })}</strong><p>{tr('actualAccent')}：{tr(recording.accent === 'personal' ? 'recordPersonal' : recording.accent === 'en_US' ? 'usActual' : recording.accent === 'en_GB' ? 'ukActual' : 'otherAccent')} · {recording.author || tr('sourceAuthor')} · {recording.license}</p><p>{recording.source}</p><p>{recording.license_url}</p>{recording.accent === 'personal' && <button className="secondary" onClick={e => openRecorder(recording.word, e.currentTarget)}><MicrophoneIcon />{tr('recordAgain')}</button>}</section>}
       </div>
       {busy && <div className="busy-indicator" role="status">{audioProgress ? tr('preparingAudio', audioProgress) : tr('busy')}{audioProgress && <button className="text-button" onClick={() => void api.spaceCancelAudio().catch(report)}>{tr('cancelAudio')}</button>}</div>}
     </main>
     {update && !confirm && !pendingAudio && !recordWord && !busy && <div className="modal-shade"><section role="dialog" aria-modal="true" aria-labelledby="update-title" className="confirm-modal update-modal" aria-busy={updating}><h2 id="update-title">{tr('updateTitle')}</h2><p>{tr('updateVersion', { current: update.current, version: update.version })}</p><p className="small muted">{tr('updateAsset', { filename: update.filename })}</p><section className="update-notes" aria-label={tr('updateChanges')}><h3>{tr('updateChanges')}</h3><p>{update.notes || tr('updateNotesMissing')}</p></section><p>{tr('updateHint')}</p>{updateError && <p className="import-note" role="alert">{updateError}</p>}{updating && <div role="status" className="update-progress"><p>{tr(updateProgress?.stage === 'installing' ? 'updateInstalling' : updateProgress?.stage === 'restarting' ? 'updateRestarting' : 'updateDownloading')}{updateProgress?.stage === 'downloading' && !!updateProgress.total && ` ${Math.min(100, Math.floor(updateProgress.received * 100 / updateProgress.total))}%`}</p><progress aria-label={tr('updateDownloading')} max={100} value={updateProgress?.stage === 'downloading' && updateProgress.total ? Math.min(100, updateProgress.received * 100 / updateProgress.total) : undefined} /></div>}<div className="button-group"><button className="update-later" autoFocus disabled={updating} onClick={() => setUpdate(null)}>{tr('updateLater')}</button><button className="update-now" disabled={updating} onClick={() => void installUpdate()}>{tr(updating ? 'updateDownloading' : 'updateNow')}</button></div></section></div>}
-    {pendingAudio && <div className="modal-shade" inert={!!recordWord}><section role="dialog" aria-modal="true" aria-labelledby="audio-title" className="confirm-modal"><h2 id="audio-title">{tr(pendingAudio.report.missing.length ? 'missingAudioTitle' : 'recordAllReady')}</h2>{pendingAudio.report.missing.length > 0 && <p>{tr('missingAudioHint')}</p>}<div className="missing-recordings">{pendingAudio.report.missing.map(item => <div className="missing-recording-row" key={item.word}><div><strong lang="en">{item.word}</strong><p>{item.error}</p></div><button className="secondary" onClick={() => openRecorder(item.word)}><MicrophoneIcon />{tr('recordStart')}</button></div>)}{!pendingAudio.report.missing.length && <p>{tr('recordAllReady')}</p>}</div><div className="button-group"><button className="secondary" onClick={() => setPendingAudio(null)}>{tr('cancel')}</button><button className="primary" disabled={!pendingAudio.report.ready.length} onClick={() => { const words = pendingAudio.session.words.filter(w => pendingAudio.report.ready.includes(w.id)); beginPrepared({ ...pendingAudio.session, words, marks: words.map(() => null) }); }}>{tr('startAvailable', { n: pendingAudio.report.ready.length })}</button></div></section></div>}
-    {recordWord && <div className="modal-shade recorder-shade"><section role="dialog" aria-modal="true" aria-labelledby="record-title" className="confirm-modal recorder-modal"><h2 id="record-title">{tr('recordTitle')}</h2><p className="record-word" lang="en">{recordWord}</p><p>{tr('recordHint')}</p><div className={`mic-status ${micStatus === 'recording' ? 'is-recording' : ''}`} role="status"><MicrophoneIcon /><span>{tr(`recordStatus${micStatus}`, { n: micSeconds })}</span></div>{micError && <p className="import-note" role="alert">{micError}</p>}<div className="button-group"><button className="secondary" disabled={micStatus === 'saving'} onClick={cancelRecorder}>{tr(micStatus === 'saved' ? 'recordDone' : 'cancel')}</button>{micStatus === 'saved' && <button className="secondary" onClick={() => speak({ id: 'personal-preview', front: recordWord, back: '' })}><SpeakerWaveIcon />{tr('recordPreview')}</button>}{micStatus === 'recording' ? <button className="primary" onClick={() => void finishRecording()}><CheckIcon />{tr('recordSave')}</button> : <button className="primary" disabled={micStatus === 'starting' || micStatus === 'saving'} autoFocus onClick={() => void beginRecording()}><MicrophoneIcon />{tr(micStatus === 'saved' ? 'recordAgain' : 'recordStart')}</button>}</div></section></div>}
+    {pendingAudio && <div className="modal-shade" inert={!!recordWord || recorderExitLock}><section role="dialog" aria-modal="true" aria-labelledby="audio-title" className="confirm-modal"><h2 id="audio-title">{tr(pendingAudio.report.missing.length ? 'missingAudioTitle' : 'recordAllReady')}</h2>{pendingAudio.report.missing.length > 0 && <p>{tr('missingAudioHint')}</p>}<div className="missing-recordings">{pendingAudio.report.missing.map(item => <div className="missing-recording-row" key={item.word}><div><strong lang="en">{item.word}</strong><p>{item.error}</p></div><button className="secondary" onClick={e => openRecorder(item.word, e.currentTarget)}><MicrophoneIcon />{tr('recordStart')}</button></div>)}{!pendingAudio.report.missing.length && <p>{tr('recordAllReady')}</p>}</div><div className="button-group"><button className="secondary" onClick={() => setPendingAudio(null)}>{tr('cancel')}</button><button className="primary" disabled={!pendingAudio.report.ready.length} onClick={() => { const words = pendingAudio.session.words.filter(w => pendingAudio.report.ready.includes(w.id)); beginPrepared({ ...pendingAudio.session, words, marks: words.map(() => null) }); }}>{tr('startAvailable', { n: pendingAudio.report.ready.length })}</button></div></section></div>}
+    <AnimatePresence initial={false} onExitComplete={restoreRecorderFocus}>{recordWord && <RecordingModal key="recording" word={recordWord} status={micStatus} seconds={micSeconds} error={micError} onCancel={cancelRecorder} onStart={() => void beginRecording()} onFinish={() => void finishRecording()} onPreview={() => { if (speech.playing) stop(); else speak({ id: 'personal-preview', front: recordWord, back: '' }); }} speaking={speech.playing} />}</AnimatePresence>
     {confirm && <div className="modal-shade"><section role="dialog" aria-modal="true" aria-labelledby="confirm-title" className="confirm-modal"><h2 id="confirm-title">{tr(confirm.kind === 'delete' ? 'deleteDeck' : 'restore')}</h2><p>{confirm.kind === 'delete' ? tr('deleteConfirm', { name: confirm.name }) : tr('restoreConfirm')}</p>{confirm.kind === 'restore' && <p className="small muted">{tr('restoreFile', { name: confirm.name })}</p>}{error && <p className="import-note" role="alert">{error}</p>}<div className="button-group"><button className="secondary" autoFocus disabled={busy} onClick={() => setConfirm(null)}>{tr('cancel')}</button><button className="primary" disabled={busy} onClick={confirmAction}>{tr(confirm.kind === 'delete' ? 'confirmDelete' : 'confirmRestore')}</button></div></section></div>}
-  </div>;
+  </div></MotionConfig></LazyMotion>;
 }

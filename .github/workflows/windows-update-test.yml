@@ -5,11 +5,11 @@ on:
     inputs:
       from_version:
         description: Published version to install first
-        default: '1.3.2'
+        default: '1.3.3'
         required: true
       to_version:
         description: Expected public latest version
-        default: '1.3.3'
+        default: '1.4.0'
         required: true
 
 permissions:
