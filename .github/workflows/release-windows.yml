@@ -19,7 +19,8 @@ jobs:
       matrix:
         include:
           - name: macOS Apple Silicon
-            runner: macos-14
+            # GitHub retires hosted image generations; keep this on the supported macOS 15 image.
+            runner: macos-15
             args: --target aarch64-apple-darwin --bundles app,dmg
             pattern: Space-Dictation_[version]_macOS-Apple-Silicon[ext]
           - name: Windows x64
