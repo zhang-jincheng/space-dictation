@@ -2,7 +2,7 @@
 
 **请先看完本指南。只有遇到打开拦截、且确认安装包来自本项目官方 Release 时，才考虑下述处理。正常打开无需执行命令。**
 
-![首次打开指南](images/poster-mac-install-actual.png)
+![首次打开指南](images/poster-mac-install-actual.png?v=965d1f3)
 
 ## 两种方法怎么选
 

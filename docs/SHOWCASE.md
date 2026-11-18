@@ -16,13 +16,13 @@
 
 ## 平台安装
 
-![平台安装说明](images/poster-platforms.png)
+![平台安装说明](images/poster-platforms.png?v=965d1f3)
 
 图中是 macOS 真实界面。提供 Mac Apple 芯片和 Windows x64 安装包，系统授权提示以实际平台为准。
 
 ## 两种 Mac 首次打开方法与一键复制
 
-![实际图标与两种打开方法](images/poster-mac-install-actual.png)
+![实际图标与两种打开方法](images/poster-mac-install-actual.png?v=965d1f3)
 
 图片不能点击复制命令。请阅读 [完整安装指南](MAC-INSTALL.md)，使用 GitHub 文字代码块右上角的复制按钮，或下载 [带复制按钮的安装帮助页](https://github.com/zhang-jincheng/space-dictation/releases/latest/download/Mac-Install-Guide.html) 在浏览器中打开。
 
